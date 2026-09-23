@@ -20,7 +20,10 @@ uv run python -m linux_recall.browser    # 打印活动浏览器标签的 URL
 qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
     org.kde.kglobalaccel.Component.invokeShortcut _launch   # 不按键地测试快捷键路径
 journalctl --user -t linux-recall-capture                    # 快捷键启动时的输出
+source scripts/lr.zsh   # lr-search / lr (fzf) / lr-highlight，用法见 README
 ```
+
+面向用户的用法（jq 查询、搜索）写在 `README.md`；改了 JSON 字段要同步更新 README 里的例子。
 
 改了包名或 entry point 后要 `uv sync --reinstall-package linux-recall`，普通 `uv sync` 不会重建。
 

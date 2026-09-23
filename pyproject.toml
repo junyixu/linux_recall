@@ -1,0 +1,24 @@
+[project]
+name = "linux-recall"
+version = "0.1.0"
+description = "Windows Recall-like screen capture for KDE Plasma (Wayland)"
+requires-python = ">=3.12"
+dependencies = [
+    "jeepney>=0.9",
+    "pillow>=11",
+    "requests>=2.32",
+]
+
+[project.scripts]
+linux-recall-capture = "linux_recall.capture:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["linux_recall"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

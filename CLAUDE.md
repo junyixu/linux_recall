@@ -2,7 +2,6 @@
 
 在 KDE Plasma 6 (KWin Wayland) 上自建一个 Windows Recall 式的工具：定时或按快捷键截取活动窗口，记录窗口信息、浏览器网址和 OCR 文字，每次截图存成一张 WebP 加一个 JSON。采集部分自己写、可审计；索引和检索以后复用成熟组件（SQLite FTS5）。
 
-- 调研背景：`其他方案.md`（现有项目对比、自建方案）和 `x11_vs_wayland.md`（Wayland 上哪些能力拿得到）
 - `ref/` 是参考用的 OpenRecall、screenpipe 源码（被 gitignore），只读，不要改
 - 面向用户的文档：`README.md`（英文，讲原理，GitHub 首页）和 `README.zh-CN.md`（中文，详细用法：安装、jq 查询、搜索、去重统计）；改了 JSON 字段或命令行参数，两份 README 里的例子都要同步更新
 

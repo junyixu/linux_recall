@@ -32,7 +32,6 @@ On X11, any client can read the window list, the focused window and any window's
 Wayland deliberately removes all three, and KWin doesn't implement the generic protocols that
 wlroots compositors offer (`wlr-screencopy`, `ext-image-copy-capture`, `ext-foreign-toplevel-list`).
 That's why OpenRecall (`mss` → `XGetImage`) and screenpipe (`xcap`/XCB) only see XWayland windows on Plasma.
-Background: [x11_vs_wayland.md](x11_vs_wayland.md) and [其他方案.md](其他方案.md) (survey of existing tools, in Chinese).
 
 What linux_recall uses instead:
 

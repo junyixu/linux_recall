@@ -1,0 +1,16 @@
+[Unit]
+Description=linux_recall: screenshot every minute, skip near-duplicates, OCR the active window
+Documentation=file:///home/junyi/WorkSpace/windows_recall_linux/README.md
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/home/junyi/WorkSpace/windows_recall_linux/.venv/bin/linux-recall-daemon --interval 60 --threshold 0.95
+Restart=on-failure
+RestartSec=30
+# a cycle can be mid-OCR (cloud timeout 60s + local fallback) when stopped
+TimeoutStopSec=120
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target

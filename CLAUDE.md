@@ -13,14 +13,16 @@
 ## 常用命令
 
 ```sh
-uv run linux-recall-capture [--mode fullscreen|monitor|window] [--no-ocr] [--ocr-timeout 60] [--no-notify] [--trigger test]
+uv run linux-recall-capture [--mode window|fullscreen|monitor] [--full-res] [--no-ocr] [--ocr-timeout 60] [--no-notify] [--trigger test]
+uv run linux-recall-daemon --interval 60 --threshold 0.95 [-v]   # 定时截图 + dHash 去重（systemd/linux-recall.service）
+journalctl --user -u linux-recall -f -o cat                      # 每轮一行 KEEP/SKIP + 相似度；统计在 ~/.cache/linux_recall/daemon.jsonl
 uv run python -m linux_recall.kwin       # 打印当前活动窗口 JSON
 uv run python -m linux_recall.browser    # 打印活动浏览器标签的 URL
 ./scripts/install-hotkey.sh              # 注册全局快捷键 Meta+Alt+R（KEY=... 可改）
 qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
     org.kde.kglobalaccel.Component.invokeShortcut _launch   # 不按键地测试快捷键路径
 journalctl --user -t linux-recall-capture                    # 快捷键启动时的输出
-source scripts/lr.zsh   # lr-search / lr (fzf) / lr-highlight，用法见 README
+source scripts/lr.zsh   # lr-search / lr (fzf，scripts/lr，kitty 里预览高亮截图) / lr-highlight，用法见 README
 ```
 
 面向用户的用法（jq 查询、搜索）写在 `README.md`；改了 JSON 字段要同步更新 README 里的例子。
@@ -43,6 +45,9 @@ source scripts/lr.zsh   # lr-search / lr (fzf) / lr-highlight，用法见 README
 - `screenshot.py`：`spectacle -b -n -f -o x.webp`；`window_region()` 把窗口的逻辑坐标换算成截图像素。spectacle 用最高缩放比（2）把整个桌面渲染成一张图，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
 - `ocr.py`：先用 PaddleOCR 云端 API（`PADDLEOCR_TOKEN`），**只上传活动窗口那块裁剪图**，不上传整张桌面。在 `--ocr-timeout`（默认 60 秒，限制整个过程，包括每次上传和轮询）内没拿到结果，或者出任何错误，就改用本地 RapidOCR 识别同一块裁剪图。返回 `{engine, fallback_reason, elapsed_s, region, text, lines:[{text, score, box: 4 个角点}]}`，box 坐标换算回整张截图的像素；`engine` 记录实际用了哪个引擎，`fallback_reason` 记录为什么改用本地
 - 截图模式是 `window`/`monitor` 时直接识别整张图；`fullscreen` 模式下没有活动窗口就跳过 OCR
+- 默认模式是 `window`（`spectacle -a -S`，`-S` 去掉透明阴影）。`take()` 把原始分辨率截图放到缓存目录；`save()` 按屏幕缩放比缩小到逻辑分辨率后保存（`screenshot.scale`），OCR 用原图识别，再把坐标换算到保存的图片上，最后删掉原图。缩小后再 OCR，kitty 窗口会从 105 行掉到 42 行，所以一定要先用原图识别。`spectacle --scaled` 只对 `-f` 有效
+- `daemon.py`：每 `--interval` 秒 `take()` 一次，同一个程序且 dHash 相似度 ≥ `--threshold` 就丢弃，否则 `save()`；每轮写一行日志和一条 `daemon.jsonl` 记录
+- `similarity.py`：16×16 dHash。实测：完全相同 1.0，时钟跳一下 0.988，多一行字 0.977，多一段 0.93，滚动 300px 0.82，内容完全不同 0.6–0.73
 
 ## 数据格式
 

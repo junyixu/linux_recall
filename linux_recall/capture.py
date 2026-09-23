@@ -1,6 +1,12 @@
 """One capture: active window context + screenshot + OCR -> ``<id>.webp`` and ``<id>.json``.
 
-Meant to be bound to a global shortcut. The JSON sidecar is written twice:
+``take()`` grabs the screenshot and context into the cache dir; ``save()``
+writes a copy downscaled to logical pixels (HiDPI screens make captures 2x
+per side) into the captures dir and OCRs the full-resolution original, since
+downscaled small text loses most OCR lines (105 -> 42 on a kitty window). The hotkey does both at once,
+the daemon (``daemon.py``) drops shots too similar to the last saved one.
+
+The JSON sidecar is written twice:
 right after the screenshot (``"ocr": null``) and again once OCR finishes, so
 a crash in OCR never loses the capture itself.
 """
@@ -9,7 +15,9 @@ import argparse
 import json
 import logging
 import sys
+import shutil
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,8 +31,10 @@ from linux_recall.kwin import get_kwin_state
 from linux_recall.ocr import CLOUD_TIMEOUT, run_ocr
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
+from linux_recall.similarity import dhash
 
-SCHEMA_VERSION = 2  # 2: + "screens", OCR limited to the active window ("ocr.region")
+SCHEMA_VERSION = 4  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
+                    # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels
 
 log = logging.getLogger("linux_recall")
 
@@ -44,13 +54,30 @@ def notify(summary: str, body: str) -> None:
         conn.send_and_get_reply(msg, timeout=2)
 
 
-def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: float) -> Path:
+@dataclass
+class Shot:
+    """A screenshot plus its context, not yet saved (the image sits in the cache dir)."""
+
+    captured_at: datetime
+    id: str
+    image: Path
+    mode: str
+    size: tuple[int, int]
+    state: dict[str, Any]
+    browser: dict[str, Any] | None
+    region: tuple[int, int, int, int] | None  # active window in screenshot pixels
+    dhash: str  # of the active window region, or of the whole image
+    device_scale: float  # screenshot pixels per logical pixel (the output scale, e.g. 2)
+
+    @property
+    def app(self) -> str | None:
+        window = self.state["window"]
+        return window and (window.get("desktop_file") or window.get("app_name"))
+
+
+def take(mode: str = "window") -> Shot:
     now = datetime.now().astimezone()
-    capture_id = f"{now:%Y%m%d-%H%M%S}-{now.microsecond // 1000:03d}"
-    day_dir = data_dir / "captures" / f"{now:%Y-%m-%d}"
-    day_dir.mkdir(parents=True, exist_ok=True)
-    image_path = day_dir / f"{capture_id}.webp"
-    json_path = day_dir / f"{capture_id}.json"
+    shot_id = f"{now:%Y%m%d-%H%M%S}-{now.microsecond // 1000:03d}"
 
     # Window first: it's ~50 ms, whereas Spectacle takes ~2 s to start.
     try:
@@ -60,9 +87,11 @@ def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: flo
         state = {"window": None, "screens": None}
     window = state["window"]
 
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    image = CACHE_DIR / f"{shot_id}.webp"
     t = time.perf_counter()
-    take_screenshot(image_path, mode)
-    log.info("screenshot %s in %.2fs", image_path, time.perf_counter() - t)
+    take_screenshot(image, mode)
+    log.debug("screenshot in %.2fs", time.perf_counter() - t)
 
     browser = None
     if window and is_browser(window):
@@ -71,18 +100,80 @@ def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: flo
         except Exception:
             log.exception("browser tab query failed")
 
-    with Image.open(image_path) as im:
-        width, height = im.size
+    with Image.open(image) as im:
+        size = im.size
+        region = None
+        if mode == "fullscreen" and window and state["screens"]:
+            region = window_region(window, state["screens"], size)
+        digest = dhash(im.crop(region) if region else im)
+    return Shot(now, shot_id, image, mode, size, state, browser, region, digest,
+                _device_scale(mode, size, state))
+
+
+def _device_scale(mode: str, size: tuple[int, int], state: dict[str, Any]) -> float:
+    screens, window = state["screens"], state["window"]
+    if not screens:
+        return 1.0
+    if mode == "fullscreen":  # Spectacle renders the whole desktop at the highest output scale
+        x0 = min(s["geometry"]["x"] for s in screens)
+        x1 = max(s["geometry"]["x"] + s["geometry"]["width"] for s in screens)
+        return size[0] / (x1 - x0)
+    # window / monitor: native pixels of the output the window is on
+    output = window and window.get("output")
+    return next((s["scale"] for s in screens if s["name"] == output), 1.0)
+
+
+def _scale_ocr(ocr: dict[str, Any], factor: float) -> dict[str, Any]:
+    """Map OCR boxes/region from full-resolution to saved-image pixels."""
+    ocr["region"] = {k: round(v * factor) for k, v in ocr["region"].items()}
+    for line in ocr["lines"]:
+        line["box"] = [[round(x * factor), round(y * factor)] for x, y in line["box"]]
+    return ocr
+
+
+def save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: float,
+         full_res: bool = False) -> Path:
+    """Save the shot (downscaled unless ``full_res``) into the captures dir, write its JSON,
+    then OCR the full-resolution original and delete it."""
+    try:
+        return _save(shot, data_dir, trigger, ocr, ocr_timeout, full_res)
+    finally:
+        shot.image.unlink(missing_ok=True)
+
+
+def _save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: float,
+          full_res: bool) -> Path:
+    day_dir = data_dir / "captures" / f"{shot.captured_at:%Y-%m-%d}"
+    day_dir.mkdir(parents=True, exist_ok=True)
+    image_path = day_dir / shot.image.name
+    json_path = image_path.with_suffix(".json")
+
+    factor = 1.0 if full_res or shot.device_scale <= 1 else 1 / shot.device_scale
+    if factor == 1.0:
+        shutil.copyfile(shot.image, image_path)
+        size = shot.size
+    else:
+        size = (round(shot.size[0] * factor), round(shot.size[1] * factor))
+        with Image.open(shot.image) as im:
+            im.resize(size, Image.Resampling.LANCZOS).save(image_path, quality=80)
+    log.info("saved %s %dx%d (%s)", image_path, *size, shot.app)
+    region = shot.region and tuple(round(v * factor) for v in shot.region)
 
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "id": capture_id,
-        "captured_at": now.isoformat(timespec="milliseconds"),
+        "id": shot.id,
+        "captured_at": shot.captured_at.isoformat(timespec="milliseconds"),
         "trigger": trigger,
-        "screenshot": {"file": image_path.name, "mode": mode, "width": width, "height": height},
-        "screens": state["screens"],
-        "window": window,
-        "browser": browser,
+        "screenshot": {
+            "file": image_path.name, "mode": shot.mode, "width": size[0], "height": size[1],
+            # saved pixels per captured pixel; OCR boxes and window_region are in saved pixels
+            "scale": round(factor, 4), "captured_width": shot.size[0], "captured_height": shot.size[1],
+            "window_region": region and dict(zip(("left", "top", "right", "bottom"), region)),
+            "dhash": shot.dhash,
+        },
+        "screens": shot.state["screens"],
+        "window": shot.state["window"],
+        "browser": shot.browser,
         "ocr": None,
     }
     write_json(json_path, record)
@@ -90,14 +181,11 @@ def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: flo
     if not ocr:
         return json_path
     # OCR only the active window; "window"/"monitor" screenshots are small enough as a whole
-    region = None
-    if mode == "fullscreen":
-        region = window and state["screens"] and window_region(window, state["screens"], (width, height))
-        if not region:
-            log.warning("no active window region, skipping OCR")
-            return json_path
+    if shot.mode == "fullscreen" and not shot.region:
+        log.warning("no active window region, skipping OCR")
+        return json_path
     try:
-        record["ocr"] = run_ocr(image_path, region, ocr_timeout)
+        record["ocr"] = _scale_ocr(run_ocr(shot.image, shot.region, ocr_timeout), factor)
     except Exception:
         log.exception('OCR failed; capture kept with "ocr": null')
         return json_path
@@ -106,10 +194,18 @@ def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: flo
     return json_path
 
 
+def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: float,
+            full_res: bool = False) -> Path:
+    return save(take(mode), data_dir, trigger, ocr, ocr_timeout, full_res)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Take one Recall capture.")
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
-    parser.add_argument("--mode", choices=MODES, default="fullscreen")
+    parser.add_argument("--mode", choices=MODES, default="window",
+                        help="window: only the active window (default); fullscreen: whole desktop")
+    parser.add_argument("--full-res", action="store_true",
+                        help="keep HiDPI resolution instead of downscaling to logical pixels")
     parser.add_argument("--no-ocr", dest="ocr", action="store_false")
     parser.add_argument("--ocr-timeout", type=float, default=CLOUD_TIMEOUT,
                         help="seconds to wait for cloud OCR before falling back to local")
@@ -124,7 +220,7 @@ def main() -> None:
         handlers=[logging.FileHandler(CACHE_DIR / "capture.log"), logging.StreamHandler()],
     )
     try:
-        json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger, args.ocr_timeout)
+        json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger, args.ocr_timeout, args.full_res)
     except Exception as e:
         log.exception("capture failed")
         if args.notify:

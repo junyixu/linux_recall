@@ -9,13 +9,17 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-MODES = {"fullscreen": "-f", "monitor": "-m", "window": "-a"}
+# window: -S drops the transparent drop shadow (otherwise ~250px of RGBA border);
+# --scaled would shrink HiDPI captures but only works with -f, so capture.py downscales itself
+MODES = {"fullscreen": ("-f",), "monitor": ("-m",), "window": ("-a", "-S")}
 
 
 def take_screenshot(path: Path, mode: str = "fullscreen") -> Path:
     """Save a screenshot to ``path``; the format follows the file extension."""
+    # --new-instance: Spectacle is D-Bus single-instance, so a second concurrent call
+    # (hotkey while the daemon is capturing) gets forwarded and its --output is lost
     subprocess.run(
-        ["spectacle", "--background", "--nonotify", MODES[mode], "--output", str(path)],
+        ["spectacle", "--background", "--nonotify", "--new-instance", *MODES[mode], "--output", str(path)],
         check=True, timeout=30, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
     )
     if not path.is_file():  # old Spectacle versions silently went to clipboard instead

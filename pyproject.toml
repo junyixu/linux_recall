@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 linux-recall-capture = "linux_recall.capture:main"
+linux-recall-daemon = "linux_recall.daemon:main"
 
 [build-system]
 requires = ["hatchling"]

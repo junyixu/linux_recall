@@ -33,10 +33,11 @@ from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 from linux_recall.similarity import dhash
 from linux_recall.zotero import get_open_item, is_zotero
+from linux_recall.anki import get_anki_context, is_anki
 
-SCHEMA_VERSION = 5  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
+SCHEMA_VERSION = 6  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
                     # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels;
-                    # 5: + "zotero" (item/page open in Zotero's reader)
+                    # 5: + "zotero" (item/page open in Zotero's reader); 6: + "anki" (card under review)
 
 log = logging.getLogger("linux_recall")
 
@@ -68,6 +69,7 @@ class Shot:
     state: dict[str, Any]
     browser: dict[str, Any] | None
     zotero: dict[str, Any] | None
+    anki: dict[str, Any] | None
     region: tuple[int, int, int, int] | None  # active window in screenshot pixels
     dhash: str  # of the active window region, or of the whole image
     device_scale: float  # screenshot pixels per logical pixel (the output scale, e.g. 2)
@@ -108,6 +110,12 @@ def take(mode: str = "window") -> Shot:
             zotero = get_open_item(window)
         except Exception:
             log.exception("Zotero query failed")
+    anki = None
+    if window and is_anki(window):
+        try:
+            anki = get_anki_context(window)
+        except Exception:
+            log.exception("AnkiConnect query failed")
 
     with Image.open(image) as im:
         size = im.size
@@ -115,7 +123,7 @@ def take(mode: str = "window") -> Shot:
         if mode == "fullscreen" and window and state["screens"]:
             region = window_region(window, state["screens"], size)
         digest = dhash(im.crop(region) if region else im)
-    return Shot(now, shot_id, image, mode, size, state, browser, zotero, region, digest,
+    return Shot(now, shot_id, image, mode, size, state, browser, zotero, anki, region, digest,
                 _device_scale(mode, size, state))
 
 
@@ -184,6 +192,7 @@ def _save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: floa
         "window": shot.state["window"],
         "browser": shot.browser,
         "zotero": shot.zotero,
+        "anki": shot.anki,
         "ocr": None,
     }
     write_json(json_path, record)
@@ -241,7 +250,9 @@ def main() -> None:
         record = json.loads(json_path.read_text())
         window, browser, zotero = record["window"] or {}, record["browser"] or {}, record["zotero"] or {}
         page = f" p.{zotero['page']}" if zotero.get("page") else ""
+        anki = record["anki"] or {}
         notify("Captured", browser.get("url") or (zotero.get("title") and zotero["title"] + page)
+               or (anki.get("deck") and f"Anki: {anki['deck']}")
                or window.get("app_name") or json_path.stem)
     print(json_path)
 

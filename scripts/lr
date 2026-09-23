@@ -3,7 +3,7 @@
 #   有关键词: 每一行是一处匹配: 程序 │ 匹配所在的那行文字(关键词标红) │ 时间 + 网站/窗口标题
 #   没有关键词: 每一行是一张截图
 # 右侧预览: 时间/程序/标题/网址 + 截图(在 kitty 里显示图片，匹配的行用红框标出)
-# enter 打开原截图，ctrl-o 打开网址(浏览器)或论文(Zotero，跳到截图时的那一页)
+# enter 打开原截图；ctrl-o 打开当时的内容: 网址(浏览器)、论文那一页(Zotero)、那张卡片(Anki 的 Browse 窗口)
 # 依赖: jq, fzf, ImageMagick(magick)；图片预览需要 kitty
 set -euo pipefail
 
@@ -28,6 +28,8 @@ preview() {
         (.browser.url // empty | "\u001b[4;34m\(.)\u001b[0m"),
         (.zotero // empty | "\u001b[35mZotero: \(.title | hl($q)) — \(.creators[:3] | join(", ")) \(.date // "")"
             + (if .page then "  p.\(.page)" else "" end) + (if .doi then "  doi:\(.doi)" else "" end) + "\u001b[0m"),
+        (.anki // empty | select(.browse_query) | "\u001b[32mAnki: \(.deck // .model // "")  \(.browse_query)\u001b[0m",
+            ((.fields // .notes[0].fields // {}) | to_entries[] | "\u001b[2m\(.key):\u001b[0m \(.value | gsub("\n"; " ") | .[:200] | hl($q))")),
         (if $idx >= 0 then "\u001b[2m> \u001b[0m" + (.ocr.lines[$idx].text | hl($q)) else empty end),
         ""' "$json"
 
@@ -63,6 +65,38 @@ preview() {
         --place="${cols}x${lines}@0x0" "$img" | sed '$d' | sed $'$s/$/\e[m/'
 }
 
+# ctrl-o: 回到截图时正在看的东西
+open_context() {
+    local json=$1 target
+    target=$(jq -r '.browser.url // .zotero.open_link // .zotero.select_link // empty' "$json")
+    if [[ -n $target ]]; then
+        xdg-open "$target"
+        return
+    fi
+    target=$(jq -r '.anki.browse_query // empty' "$json")
+    if [[ -n $target ]]; then
+        # guiBrowse 打开 Anki 的 Browse 窗口并搜索这张卡片，guiSelectCard 选中它
+        local ids
+        ids=$(jq -nc --arg q "$target" '{action: "guiBrowse", version: 6, params: {query: $q}}' |
+            curl -s -m 5 localhost:8765 -d @- | jq -c '.result // []')
+        jq -nc --argjson ids "$ids" 'select($ids | length > 0) | {action: "guiSelectCard", version: 6, params: {card: $ids[0]}}' |
+            curl -s -m 5 localhost:8765 -d @- >/dev/null
+        # Anki 从后台调用 activateWindow() 会被 KWin 的防抢焦点拦下(Browse 已经开着时尤其明显)，
+        # 所以通过 KWin 脚本(kdotool)把 Browse 窗口提到前面
+        sleep 0.3
+        kdotool search --class anki --name '^Browse' windowactivate %1 >/dev/null 2>&1 || true
+        return
+    fi
+    # 旧截图(schema < 5/6)或者当时的程序没有可以打开的东西
+    notify-send -a linux_recall -i dialog-information "lr: 没有可以打开的内容" \
+        "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片）"
+}
+
+if [[ ${1:-} == --open ]]; then
+    open_context "$2"
+    exit 0
+fi
+
 if [[ ${1:-} == --preview ]]; then
     preview "$2" "$3"
     exit 0
@@ -77,14 +111,19 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
     | ((.window.app_name // "?") + (" " * 12))[:12] as $app
     | (.browser.url // "" | capture("^[a-z]+://(?<h>[^/]+)").h // null) as $host
     | (.zotero // null | if . then "\(.title[:40])" + (if .page then " p.\(.page)" else "" end) else null end) as $paper
+    | (.anki // null | if .deck then "Anki: \(.deck)" else null end) as $card
     # 没有关键词时第 2 列已经是窗口标题，第 3 列只放时间和网站
-    | (if $q == "" then $host // $paper // "" else $host // $paper // (.window.caption // "")[:40] end) as $where
+    | (if $q == "" then $host // $paper // $card // "" else $host // $paper // $card // (.window.caption // "")[:40] end) as $where
     | "\u001b[2m\(.captured_at[5:16] | sub("T"; " "))  \($where)\u001b[0m" as $info
     | if $q == "" then
         [$f, "-1", $app, (.window.caption // ""), $info]
       else
         ( (.ocr.lines // [] | to_entries[] | select(.value.text | has($q))
             | [$f, (.key | tostring), $app, (.value.text | hl($q)), $info]),
+          # Anki: like OCR lines, one row per matching line of a card field
+          (.anki | (.fields // .notes[0].fields // {}) | to_entries[] | .key as $field
+            | .value | split("\n")[] | select(has($q))
+            | [$f, "-1", $app, "\u001b[2m\($field):\u001b[0m \(hl($q))", $info]),
           ([.window.caption, .browser.url, .zotero.title, .zotero.doi] as $meta
             | select($meta | map(. // "") | join("\n") | has($q))
             # the Zotero caption is just "title - author - year", so show title + DOI instead
@@ -102,8 +141,8 @@ fi
 printf '%s\n' "$rows" |
     fzf --ansi --tac --tiebreak=index \
         --delimiter '\t' --with-nth 3.. \
-        --header 'enter: 打开截图 · ctrl-o: 打开网址 / Zotero 论文' \
+        --header 'enter: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片' \
         --preview "'$self' --preview {1} {2}" \
         --preview-window 'right,55%,wrap' \
         --bind 'enter:execute-silent(f={1}; xdg-open "${f%.json}.webp")' \
-        --bind 'ctrl-o:execute-silent(jq -r ".browser.url // .zotero.open_link // .zotero.select_link // empty" {1} | xargs -r xdg-open)'
+        --bind "ctrl-o:execute-silent('$self' --open {1})"

@@ -14,6 +14,7 @@ uv sync
 - `spectacle`（截图）
 - `plasma-browser-integration`，并在浏览器里装对应扩展（获取网址）
 - Zotero 7+：在 设置 → 高级 里勾选「允许此计算机上的其他应用程序与 Zotero 通信」（获取正在读的论文和页码）
+- Anki + [AnkiConnect](https://ankiweb.net/shared/info/2055492159) 插件（获取正在复习的卡片）
 - `PADDLEOCR_TOKEN` 环境变量（云端 OCR；没有或超时时自动改用本地 RapidOCR）
 
 命令行搜索还需要 `jq`；交互式搜索需要 `fzf`；标出匹配文字需要 ImageMagick（`magick`）。
@@ -75,6 +76,12 @@ JSON 的主要字段：
     "page": 48,                                      // 截图时读到的页码
     "open_link": "zotero://open-pdf/library/items/I2R4MPPK?page=48",  // 打开 PDF 并跳到这一页
     "select_link": "zotero://select/library/items/NU7ER76Q"          // 在文库里选中这篇
+  },
+  "anki": {                                          // 不是 Anki 时为 null
+    "mode": "review",                                // review 复习中 / browse 在 Browse 窗口 / other
+    "card_id": 1706122964826, "note_id": 1706122964826, "deck": "Custom Study Session", "model": "Basic",
+    "fields": {"Front": "…", "Back": "…"},          // 纯文本，可以搜索
+    "browse_query": "cid:1706122964826"              // ctrl-o 用 guiBrowse 打开这张卡片
   },
   "ocr": {
     "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
@@ -177,6 +184,12 @@ jq -r 'select(.zotero) | [.captured_at[:16], .zotero.title, "p.\(.zotero.page)",
 xdg-open 'zotero://open-pdf/library/items/I2R4MPPK?page=48'   # 在 Zotero 里打开并跳到那一页
 ```
 
+**复习过的 Anki 卡片**
+
+```sh
+jq -r 'select(.anki.card_id) | [.captured_at[:16], .anki.deck, (.anki.fields | first(.[]) | .[:60])] | @tsv' */*.json
+```
+
 **浏览过的网址（去重）**
 
 ```sh
@@ -240,7 +253,7 @@ source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
 | 命令 | 作用 |
 |---|---|
 | `lr-search <关键词>` | 就是上面那条 jq 命令，输出 时间 / 程序 / 网址或标题 / 截图路径 |
-| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 │ 所在那行文字，关键词标红 │ 时间和网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车打开截图，`ctrl-o` 打开网址，或者在 Zotero 里打开论文并跳到截图时的那一页 |
+| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 │ 所在那行文字，关键词标红 │ 时间和网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）。Anki 卡片的字段也能搜索，匹配的每一行单独一行显示 |
 | `lr-highlight <json> <关键词> [输出.png]` | 在截图上用红框标出匹配的行，并裁剪到 OCR 区域，默认输出 `/tmp/lr-highlight.png` |
 
 ```sh

@@ -231,5 +231,18 @@ Unset `PADDLEOCR_TOKEN` in `environment.d` to keep OCR local.
 
 A personal tool, built and tested on Arch Linux + Plasma 6.7 with three mixed-DPI monitors.
 Next up: SQLite FTS5 index, event-driven triggers (window switch, `ext-idle-notify-v1`), expiring old images while
-keeping the JSON, an exclusion list, and encryption. Research that shaped the design:
-[OpenRecall](https://github.com/openrecall/openrecall), [screenpipe](https://github.com/screenpipe/screenpipe).
+keeping the JSON, an exclusion list, and encryption.
+
+## Similar projects
+
+- **Windows Recall** (Microsoft, Copilot+ PCs): the original idea; Windows only.
+- [OpenRecall](https://github.com/openrecall/openrecall): open-source Recall clone in Python (AGPL-3.0).
+  Captures with `mss`, which fails with `XGetImage() failed` on a Wayland session.
+- [screenpipe](https://github.com/screenpipe/screenpipe): event-driven capture, accessibility tree plus OCR,
+  SQLite full-text search. Now source-available rather than open source; on Linux it captures through X11,
+  so it only sees XWayland windows on Plasma.
+- [Windrecorder](https://github.com/yuka-friends/Windrecorder): records and OCRs the screen; Windows only.
+- [ActivityWatch](https://activitywatch.net/): tracks app and window usage time without screenshots;
+  on KWin Wayland it needs [awatcher](https://github.com/2e3s/awatcher).
+- [NormCap](https://github.com/dynobo/normcap): one-off "select a region, copy its text" OCR, which works on Wayland.
+  It's the closest to Click to Do.

@@ -20,7 +20,7 @@ from jeepney.io.blocking import open_dbus_connection
 
 from linux_recall.browser import get_active_tab, is_browser
 from linux_recall.kwin import get_kwin_state
-from linux_recall.ocr import run_ocr
+from linux_recall.ocr import CLOUD_TIMEOUT, run_ocr
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 
@@ -44,7 +44,7 @@ def notify(summary: str, body: str) -> None:
         conn.send_and_get_reply(msg, timeout=2)
 
 
-def capture(data_dir: Path, mode: str, ocr: bool, trigger: str) -> Path:
+def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: float) -> Path:
     now = datetime.now().astimezone()
     capture_id = f"{now:%Y%m%d-%H%M%S}-{now.microsecond // 1000:03d}"
     day_dir = data_dir / "captures" / f"{now:%Y-%m-%d}"
@@ -97,12 +97,12 @@ def capture(data_dir: Path, mode: str, ocr: bool, trigger: str) -> Path:
             log.warning("no active window region, skipping OCR")
             return json_path
     try:
-        record["ocr"] = run_ocr(image_path, region)
+        record["ocr"] = run_ocr(image_path, region, ocr_timeout)
     except Exception:
         log.exception('OCR failed; capture kept with "ocr": null')
         return json_path
     write_json(json_path, record)
-    log.info("ocr %d lines in %.2fs", len(record["ocr"]["lines"]), record["ocr"]["elapsed_s"])
+    log.info("ocr (%s) %d lines in %.2fs", record["ocr"]["engine"], len(record["ocr"]["lines"]), record["ocr"]["elapsed_s"])
     return json_path
 
 
@@ -111,6 +111,8 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--mode", choices=MODES, default="fullscreen")
     parser.add_argument("--no-ocr", dest="ocr", action="store_false")
+    parser.add_argument("--ocr-timeout", type=float, default=CLOUD_TIMEOUT,
+                        help="seconds to wait for cloud OCR before falling back to local")
     parser.add_argument("--no-notify", dest="notify", action="store_false")
     parser.add_argument("--trigger", default="hotkey", help="recorded as-is in the JSON")
     args = parser.parse_args()
@@ -122,7 +124,7 @@ def main() -> None:
         handlers=[logging.FileHandler(CACHE_DIR / "capture.log"), logging.StreamHandler()],
     )
     try:
-        json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger)
+        json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger, args.ocr_timeout)
     except Exception as e:
         log.exception("capture failed")
         if args.notify:

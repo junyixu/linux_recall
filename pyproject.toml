@@ -5,7 +5,9 @@ description = "Windows Recall-like screen capture for KDE Plasma (Wayland)"
 requires-python = ">=3.12"
 dependencies = [
     "jeepney>=0.9",
+    "onnxruntime>=1.20",
     "pillow>=11",
+    "rapidocr>=3.4",
     "requests>=2.32",
 ]
 

@@ -13,7 +13,7 @@
 ## 常用命令
 
 ```sh
-uv run linux-recall-capture [--mode fullscreen|monitor|window] [--no-ocr] [--no-notify] [--trigger test]
+uv run linux-recall-capture [--mode fullscreen|monitor|window] [--no-ocr] [--ocr-timeout 60] [--no-notify] [--trigger test]
 uv run python -m linux_recall.kwin       # 打印当前活动窗口 JSON
 uv run python -m linux_recall.browser    # 打印活动浏览器标签的 URL
 ./scripts/install-hotkey.sh              # 注册全局快捷键 Meta+Alt+R（KEY=... 可改）
@@ -38,7 +38,7 @@ journalctl --user -t linux-recall-capture                    # 快捷键启动�
 - `kwin.py`：活动窗口和各显示器的几何信息（`get_kwin_state()`）。用 jeepney 往 `org.kde.KWin /Scripting` 加载一段临时 KWin 脚本，脚本读 `workspace.activeWindow` 后用 `callDBus` 回调到我们的 unique bus name，用完就 unload（和 kdotool 同一个思路，但一次调用拿全所有字段）
 - `browser.py`：Plasma Browser Integration `/TabsRunner`（krunner1 接口）。把窗口标题去掉浏览器后缀，找 `relevance == 1` 且标题完全相同的标签页
 - `screenshot.py`：`spectacle -b -n -f -o x.webp`；`window_region()` 把窗口的逻辑坐标换算成截图像素。spectacle 用最高缩放比（2）把整个桌面渲染成一张图，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
-- `ocr.py`：PaddleOCR 云端 API（`PADDLEOCR_TOKEN`），**只上传活动窗口那块裁剪图**，不上传整张桌面。返回 `{engine, elapsed_s, region, text, lines:[{text, score, box: 4 个角点}]}`，box 坐标换算回整张截图的像素
+- `ocr.py`：先用 PaddleOCR 云端 API（`PADDLEOCR_TOKEN`），**只上传活动窗口那块裁剪图**，不上传整张桌面。在 `--ocr-timeout`（默认 60 秒，限制整个过程，包括每次上传和轮询）内没拿到结果，或者出任何错误，就改用本地 RapidOCR 识别同一块裁剪图。返回 `{engine, fallback_reason, elapsed_s, region, text, lines:[{text, score, box: 4 个角点}]}`，box 坐标换算回整张截图的像素；`engine` 记录实际用了哪个引擎，`fallback_reason` 记录为什么改用本地
 - 截图模式是 `window`/`monitor` 时直接识别整张图；`fullscreen` 模式下没有活动窗口就跳过 OCR
 
 ## 数据格式
@@ -56,7 +56,7 @@ journalctl --user -t linux-recall-capture                    # 快捷键启动�
 - TabsRunner 不标记哪个是活动标签，只能按标题匹配；标题相同的多个标签会标成 `"match": "ambiguous"`。Firefox 隐私窗口直接跳过
 - **PaddleOCR 云端 API**（`PADDLEOCR_TOKEN`，参考 `~/WorkSpace/anki_agent/anki_ocr_paddle.py`）：默认 `limit_side_len=960, limit_type=max`，6098 px 的整桌面图检测前被缩到 960 px，只认出 2 行（本地 RapidOCR 认出 57 行）；服务端 `max_side_limit=4000`；把 `textDetLimitSideLen` 调大（试过 3938/4000/6098）任务会以 500 失败。所以现在只识别活动窗口、用默认的 960：3938×2136 的 Firefox 窗口裁剪图能认出约 100 行，质量很好
 - PaddleOCR 返回 400 且 `code 10010`（“任务提交队列已满”）表示服务端繁忙，`_submit` 会退避重试；服务拥堵时任务会在队列里 `pending` 好几分钟（实际处理只要 1–10 秒），所以 `_wait` 的超时设成 600 秒。判断问题出在我们还是服务端：用 `anki_ocr_paddle.fetch_lines` 跑一张小图对照
-- 本地 RapidOCR 已经移除（依赖太重，而且识别整个三屏桌面要占约 6 个核心、7 秒）
+- 本地 RapidOCR 只作为兜底，而且只识别窗口裁剪图（识别整个三屏桌面要占约 6 个核心、7 秒）。它默认 `Global.max_side_len=2000`，会把图缩小，所以按裁剪图的最长边设置
 - `PADDLEOCR_TOKEN` 定义在 `~/.config/environment.d/74-api-keys.conf`，所以快捷键启动的进程（systemd scope）也能拿到
 - shell 里的 `ls` 是 `eza --git-ignore` 的别名，会隐藏 `.venv/` 等被 gitignore 的文件，查这些目录要用 `/bin/ls`
 - 快捷键：kglobalaccel 在 kwin_wayland 进程里，没法重启；用 D-Bus 的 `doRegister` + `setForeignShortcutKeys` 注册，按键码格式是 Qt 的 `Meta|Alt|key`（例如 `Meta+Alt+R` = `402653266`）

@@ -4,7 +4,7 @@
 
 - 调研背景：`其他方案.md`（现有项目对比、自建方案）和 `x11_vs_wayland.md`（Wayland 上哪些能力拿得到）
 - `ref/` 是参考用的 OpenRecall、screenpipe 源码（被 gitignore），只读，不要改
-- 面向用户的用法（安装、jq 查询、搜索、去重统计）写在 `README.md`；改了 JSON 字段或命令行参数，要同步更新 README 里的例子
+- 面向用户的文档：`README.md`（英文，讲原理，GitHub 首页）和 `README.zh-CN.md`（中文，详细用法：安装、jq 查询、搜索、去重统计）；改了 JSON 字段或命令行参数，两份 README 里的例子都要同步更新
 
 ## 环境
 
@@ -33,7 +33,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 ```
 
 - 测试时用 `--data-dir` 指向临时目录，不要往真实数据目录里写测试截图；daemon 测试会往真实的 `~/.cache/linux_recall/daemon.jsonl` 追加记录，测完要清理
-- `~/.config/systemd/user/linux-recall.service` 是 `systemd/linux-recall.service` 的**拷贝**，不是软链接：改了仓库里的 unit 要重新 `cp`，再 `systemctl --user daemon-reload`
+- `systemd/linux-recall.service` 里用 `%h` 表示家目录（仓库是公开的，不写死 `/home/junyi`）；`~/.config/systemd/user/linux-recall.service` 是它的**拷贝**，不是软链接：改了仓库里的 unit 要重新 `cp`，再 `systemctl --user daemon-reload`
 - 改了包名或 entry point 后要 `uv sync --reinstall-package linux-recall`，普通 `uv sync` 不会重建
 
 ## 命名与路径

@@ -10,12 +10,9 @@ You can jump back to the source with one key: the web page, the PDF page in Zote
 
 ## Demo
 
-<!--
-  DEMO VIDEO SLOT: edit this file on github.com and drag the .mp4 into the editor right here.
-  GitHub replaces it with a https://github.com/user-attachments/assets/... URL on its own line,
-  which renders as an embedded video player. Then delete this comment and the line below.
--->
-_Demo video coming soon._
+
+https://github.com/user-attachments/assets/d722e4a9-abe3-43de-b14c-d092b55a7dd6
+
 
 ## Features
 

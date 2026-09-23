@@ -3,7 +3,7 @@
 #   有关键词: 每一行是一处匹配: 程序 │ 匹配所在的那行文字(关键词标红) │ 时间 + 网站/窗口标题
 #   没有关键词: 每一行是一张截图
 # 右侧预览: 时间/程序/标题/网址 + 截图(在 kitty 里显示图片，匹配的行用红框标出)
-# enter 打开原截图，ctrl-o 打开网址
+# enter 打开原截图，ctrl-o 打开网址(浏览器)或论文(Zotero，跳到截图时的那一页)
 # 依赖: jq, fzf, ImageMagick(magick)；图片预览需要 kitty
 set -euo pipefail
 
@@ -26,6 +26,8 @@ preview() {
         "\u001b[1m\(.captured_at[:16] | sub("T"; " "))  \(.window.app_name // "?")\u001b[0m",
         (.window.caption // "" | hl($q)),
         (.browser.url // empty | "\u001b[4;34m\(.)\u001b[0m"),
+        (.zotero // empty | "\u001b[35mZotero: \(.title | hl($q)) — \(.creators[:3] | join(", ")) \(.date // "")"
+            + (if .page then "  p.\(.page)" else "" end) + (if .doi then "  doi:\(.doi)" else "" end) + "\u001b[0m"),
         (if $idx >= 0 then "\u001b[2m> \u001b[0m" + (.ocr.lines[$idx].text | hl($q)) else empty end),
         ""' "$json"
 
@@ -74,16 +76,21 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
     input_filename as $f
     | ((.window.app_name // "?") + (" " * 12))[:12] as $app
     | (.browser.url // "" | capture("^[a-z]+://(?<h>[^/]+)").h // null) as $host
+    | (.zotero // null | if . then "\(.title[:40])" + (if .page then " p.\(.page)" else "" end) else null end) as $paper
     # 没有关键词时第 2 列已经是窗口标题，第 3 列只放时间和网站
-    | (if $q == "" then $host // "" else $host // (.window.caption // "")[:40] end) as $where
+    | (if $q == "" then $host // $paper // "" else $host // $paper // (.window.caption // "")[:40] end) as $where
     | "\u001b[2m\(.captured_at[5:16] | sub("T"; " "))  \($where)\u001b[0m" as $info
     | if $q == "" then
         [$f, "-1", $app, (.window.caption // ""), $info]
       else
         ( (.ocr.lines // [] | to_entries[] | select(.value.text | has($q))
             | [$f, (.key | tostring), $app, (.value.text | hl($q)), $info]),
-          (select([.window.caption, .browser.url] | map(. // "") | join("\n") | has($q))
-            | [$f, "-1", $app, ([.window.caption, .browser.url] | map(select(. != null) | hl($q)) | join("  ")), $info]) )
+          ([.window.caption, .browser.url, .zotero.title, .zotero.doi] as $meta
+            | select($meta | map(. // "") | join("\n") | has($q))
+            # the Zotero caption is just "title - author - year", so show title + DOI instead
+            | (if .zotero then [.zotero.title, .zotero.doi] else [.window.caption, .browser.url] end
+               | map(select(. != null) | hl($q)) | join("  ")) as $text
+            | [$f, "-1", $app, $text, $info]) )
       end
     | join("\t")' "$captures"/*/*.json)
 
@@ -95,8 +102,8 @@ fi
 printf '%s\n' "$rows" |
     fzf --ansi --tac --tiebreak=index \
         --delimiter '\t' --with-nth 3.. \
-        --header 'enter: 打开截图 · ctrl-o: 打开网址' \
+        --header 'enter: 打开截图 · ctrl-o: 打开网址 / Zotero 论文' \
         --preview "'$self' --preview {1} {2}" \
         --preview-window 'right,55%,wrap' \
         --bind 'enter:execute-silent(f={1}; xdg-open "${f%.json}.webp")' \
-        --bind 'ctrl-o:execute-silent(jq -r ".browser.url // empty" {1} | xargs -r xdg-open)'
+        --bind 'ctrl-o:execute-silent(jq -r ".browser.url // .zotero.open_link // .zotero.select_link // empty" {1} | xargs -r xdg-open)'

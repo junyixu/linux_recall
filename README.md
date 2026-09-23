@@ -13,6 +13,7 @@ uv sync
 需要：
 - `spectacle`（截图）
 - `plasma-browser-integration`，并在浏览器里装对应扩展（获取网址）
+- Zotero 7+：在 设置 → 高级 里勾选「允许此计算机上的其他应用程序与 Zotero 通信」（获取正在读的论文和页码）
 - `PADDLEOCR_TOKEN` 环境变量（云端 OCR；没有或超时时自动改用本地 RapidOCR）
 
 命令行搜索还需要 `jq`；交互式搜索需要 `fzf`；标出匹配文字需要 ImageMagick（`magick`）。
@@ -68,6 +69,13 @@ JSON 的主要字段：
     "output": "DP-1"                                 // 在哪块显示器上
   },
   "browser": {"url": "https://theconversation.com/…"},  // 不是浏览器时为 null
+  "zotero": {                                        // 不是 Zotero 阅读器时为 null
+    "title": "Finite element exterior calculus", "creators": ["Arnold"], "date": "2018",
+    "doi": "10.1137/1.9781611975543", "url": "https://doi.org/10.1137/1.9781611975543",
+    "page": 48,                                      // 截图时读到的页码
+    "open_link": "zotero://open-pdf/library/items/I2R4MPPK?page=48",  // 打开 PDF 并跳到这一页
+    "select_link": "zotero://select/library/items/NU7ER76Q"          // 在文库里选中这篇
+  },
   "ocr": {
     "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
     "fallback_reason": null,                         // 为什么改用本地 OCR
@@ -162,6 +170,13 @@ jq -r 'select(.window.app_name == "Firefox") | [.captured_at[:16], .browser.url]
 
 **只看某一天**：把 `*/*.json` 换成 `2026-09-23/*.json`。
 
+**读过的论文和页码（Zotero）**
+
+```sh
+jq -r 'select(.zotero) | [.captured_at[:16], .zotero.title, "p.\(.zotero.page)", .zotero.open_link] | @tsv' */*.json
+xdg-open 'zotero://open-pdf/library/items/I2R4MPPK?page=48'   # 在 Zotero 里打开并跳到那一页
+```
+
 **浏览过的网址（去重）**
 
 ```sh
@@ -225,7 +240,7 @@ source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
 | 命令 | 作用 |
 |---|---|
 | `lr-search <关键词>` | 就是上面那条 jq 命令，输出 时间 / 程序 / 网址或标题 / 截图路径 |
-| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 │ 所在那行文字，关键词标红 │ 时间和网站）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车打开截图，`ctrl-o` 打开网址 |
+| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 │ 所在那行文字，关键词标红 │ 时间和网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车打开截图，`ctrl-o` 打开网址，或者在 Zotero 里打开论文并跳到截图时的那一页 |
 | `lr-highlight <json> <关键词> [输出.png]` | 在截图上用红框标出匹配的行，并裁剪到 OCR 区域，默认输出 `/tmp/lr-highlight.png` |
 
 ```sh

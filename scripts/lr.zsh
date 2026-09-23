@@ -9,9 +9,9 @@ LR_SCRIPTS=${${(%):-%x}:A:h}  # directory of this file
 # 输出: 时间 <TAB> 程序 <TAB> URL 或窗口标题 <TAB> 截图路径
 lr-search() {
     jq -r --arg q "$1" '
-      select([.ocr.text, .window.caption, .browser.url] | map(. // "") | join("\n")
+      select([.ocr.text, .window.caption, .browser.url, .zotero.title, .zotero.doi] | map(. // "") | join("\n")
              | ascii_downcase | contains($q | ascii_downcase))
-      | [.captured_at[:19], .window.app_name, (.browser.url // .window.caption),
+      | [.captured_at[:19], .window.app_name, (.browser.url // .zotero.open_link // .window.caption),
          (input_filename | sub("\\.json$"; ".webp"))] | @tsv' "$LR_CAPTURES"/*/*.json
 }
 

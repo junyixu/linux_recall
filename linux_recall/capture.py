@@ -32,9 +32,11 @@ from linux_recall.ocr import CLOUD_TIMEOUT, run_ocr
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 from linux_recall.similarity import dhash
+from linux_recall.zotero import get_open_item, is_zotero
 
-SCHEMA_VERSION = 4  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
-                    # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels
+SCHEMA_VERSION = 5  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
+                    # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels;
+                    # 5: + "zotero" (item/page open in Zotero's reader)
 
 log = logging.getLogger("linux_recall")
 
@@ -65,6 +67,7 @@ class Shot:
     size: tuple[int, int]
     state: dict[str, Any]
     browser: dict[str, Any] | None
+    zotero: dict[str, Any] | None
     region: tuple[int, int, int, int] | None  # active window in screenshot pixels
     dhash: str  # of the active window region, or of the whole image
     device_scale: float  # screenshot pixels per logical pixel (the output scale, e.g. 2)
@@ -99,6 +102,12 @@ def take(mode: str = "window") -> Shot:
             browser = get_active_tab(window)
         except Exception:
             log.exception("browser tab query failed")
+    zotero = None
+    if window and is_zotero(window):
+        try:
+            zotero = get_open_item(window)
+        except Exception:
+            log.exception("Zotero query failed")
 
     with Image.open(image) as im:
         size = im.size
@@ -106,7 +115,7 @@ def take(mode: str = "window") -> Shot:
         if mode == "fullscreen" and window and state["screens"]:
             region = window_region(window, state["screens"], size)
         digest = dhash(im.crop(region) if region else im)
-    return Shot(now, shot_id, image, mode, size, state, browser, region, digest,
+    return Shot(now, shot_id, image, mode, size, state, browser, zotero, region, digest,
                 _device_scale(mode, size, state))
 
 
@@ -174,6 +183,7 @@ def _save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: floa
         "screens": shot.state["screens"],
         "window": shot.state["window"],
         "browser": shot.browser,
+        "zotero": shot.zotero,
         "ocr": None,
     }
     write_json(json_path, record)
@@ -229,8 +239,10 @@ def main() -> None:
 
     if args.notify:
         record = json.loads(json_path.read_text())
-        window, browser = record["window"] or {}, record["browser"] or {}
-        notify("Captured", browser.get("url") or window.get("app_name") or json_path.stem)
+        window, browser, zotero = record["window"] or {}, record["browser"] or {}, record["zotero"] or {}
+        page = f" p.{zotero['page']}" if zotero.get("page") else ""
+        notify("Captured", browser.get("url") or (zotero.get("title") and zotero["title"] + page)
+               or window.get("app_name") or json_path.stem)
     print(json_path)
 
 

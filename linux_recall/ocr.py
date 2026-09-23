@@ -48,11 +48,13 @@ def _headers() -> dict[str, str]:
     return {"Authorization": f"bearer {token}"}
 
 
-def _submit(image_path: Path, deadline: float) -> str:
+def _submit(image_path: Path, deadline: float, word_boxes: bool = False) -> str:
     optional_payload = {
         "useDocOrientationClassify": False,
         "useDocUnwarping": False,
         "useTextlineOrientation": False,
+        # per-token boxes: English words, single CJK characters, and spaces as their own tokens
+        "returnWordBox": word_boxes,
     }
     data = {"model": MODEL, "optionalPayload": json.dumps(optional_payload)}
     delay = 5
@@ -87,12 +89,18 @@ def _wait(job_id: str, deadline: float, interval: float = 2) -> dict[str, Any]:
     raise TimeoutError(f"PaddleOCR job {job_id} still {state!r} at deadline")
 
 
-def _cloud(image_path: Path, timeout: float) -> list[Line]:
+def cloud_result(image_path: Path, timeout: float, word_boxes: bool = False) -> dict[str, Any]:
+    """Raw PaddleOCR ``prunedResult`` (``rec_texts``, ``rec_polys``, ``text_word``, ...);
+    raises on any failure or when ``timeout`` seconds pass."""
     deadline = time.monotonic() + timeout
-    job = _wait(_submit(image_path, deadline), deadline)
-    resp = requests.get(job["resultUrl"]["jsonUrl"], timeout=30)
+    job = _wait(_submit(image_path, deadline, word_boxes), deadline)
+    resp = requests.get(job["resultUrl"]["jsonUrl"], timeout=_remaining(deadline))
     resp.raise_for_status()
-    pruned = json.loads(resp.text.splitlines()[0])["result"]["ocrResults"][0]["prunedResult"]
+    return json.loads(resp.text.splitlines()[0])["result"]["ocrResults"][0]["prunedResult"]
+
+
+def _cloud(image_path: Path, timeout: float) -> list[Line]:
+    pruned = cloud_result(image_path, timeout)
     return list(zip(pruned["rec_texts"], pruned["rec_scores"], pruned["rec_polys"]))
 
 

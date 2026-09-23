@@ -7,7 +7,7 @@ KDE Plasma 6 (Wayland) 上的 Windows Recall 式工具：按一个快捷键（�
 ```sh
 cd ~/WorkSpace/windows_recall_linux
 uv sync
-./scripts/install-hotkey.sh        # 注册全局快捷键 Meta+Alt+R
+./scripts/install-hotkey.sh        # 注册全局快捷键 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do）
 ```
 
 需要：
@@ -32,6 +32,16 @@ uv sync
 - 截图和窗口信息约 1 秒内保存好；OCR 结果稍后写进同一个 JSON（云端通常 5–60 秒）
 - 为了省空间，保存的图片会按屏幕缩放比缩小到逻辑分辨率（2× 屏幕上每边缩小一半，一张窗口截图约 150 KB）。OCR 仍然用原始分辨率识别，识别完就删除原图，所以缩小不影响识别效果
 - 完成后会弹一个系统通知
+
+## Click to Do：选取窗口里的文字
+
+按 **`Meta+Alt+C`**（或运行 `uv run linux-recall-click`）：截取活动窗口，用百度云 OCR 识别（按单词给出位置），然后在 Firefox 新窗口里打开一个页面，页面上是截图，文字可以像网页一样**按单词拖动选择**，`Ctrl+C` 复制。
+
+- 识别时会弹通知“正在识别…”；云端通常要 10–30 秒
+- 只用云端 OCR：失败或超过 `--timeout`（默认 60 秒）就弹通知报错，不会改用本地 OCR
+- 页面上按 `t` 可以显示文字层（红色），用来检查位置是否对齐
+- 跨行选择时按列排序：比如左边的侧边栏和右边的正文不会被选到一起
+- 页面和截图放在 `~/.cache/linux_recall/clicktodo/`，一天后自动删除；不会存进截图记录
 
 ## 数据在哪里
 

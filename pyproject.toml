@@ -5,6 +5,7 @@ description = "Windows Recall-like screen capture for KDE Plasma (Wayland)"
 requires-python = ">=3.12"
 dependencies = [
     "jeepney>=0.9",
+    "numpy>=2",
     "onnxruntime>=1.20",
     "pillow>=11",
     "rapidocr>=3.4",
@@ -14,6 +15,7 @@ dependencies = [
 [project.scripts]
 linux-recall-capture = "linux_recall.capture:main"
 linux-recall-daemon = "linux_recall.daemon:main"
+linux-recall-click = "linux_recall.clicktodo:main"
 
 [build-system]
 requires = ["hatchling"]

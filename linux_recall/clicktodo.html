@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Click to Do</title>
+<style>
+  html, body { margin: 0; background: #202124; }
+  #bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1;
+    padding: 4px 12px; font: 13px system-ui, sans-serif; color: #ddd;
+    background: rgba(32, 33, 36, .92); display: flex; gap: 1.5em; align-items: baseline;
+  }
+  #bar .hint { margin-left: auto; color: #999; }
+  #bar kbd { font: inherit; padding: 0 4px; border: 1px solid #666; border-radius: 3px; }
+  #page { position: relative; transform-origin: 0 0; margin-top: 26px; }
+  #page img { display: block; user-select: none; pointer-events: none; }
+  /* one div per OCR line so a copied selection keeps its line breaks */
+  .line { position: absolute; left: 0; top: 0; }
+  /* one span per character (textfit.py places each on its glyph) */
+  .w {
+    position: absolute; white-space: pre; line-height: 1; transform-origin: 0 0;
+    font-family: sans-serif; color: transparent; cursor: text;
+  }
+  .w::selection { background: rgba(56, 120, 255, .45); color: transparent; }
+  body.show .w { color: rgba(220, 0, 0, .85); outline: 1px solid rgba(220, 0, 0, .25); }
+  body.show .w::selection { color: #fff; }
+</style>
+<div id="bar">
+  <span id="meta"></span>
+  <span class="hint">拖动选择文字 · <kbd>Ctrl+C</kbd> 复制 · <kbd>Ctrl+A</kbd> 全选 · <kbd>t</kbd> 显示文字层</span>
+</div>
+<div id="page"><img id="shot" alt=""></div>
+<script>
+const DATA = /*DATA*/null;
+
+const page = document.getElementById("page");
+const img = document.getElementById("shot");
+document.title = `Click to Do — ${DATA.title}`;
+document.getElementById("meta").textContent = `${DATA.app} · ${DATA.time} · ${DATA.lines.length} 行`;
+
+function build() {
+  for (const line of DATA.lines) {
+    const div = document.createElement("div");
+    div.className = "line";
+    for (const { t, b: [x0, y0, x1, y1] } of line.words) {
+      const span = document.createElement("span");
+      span.className = "w";
+      span.textContent = t;
+      const h = y1 - y0;
+      const size = h * 0.8;
+      Object.assign(span.style, {
+        left: `${x0}px`, top: `${y0 + (h - size) / 2}px`, fontSize: `${size}px`,
+      });
+      div.appendChild(span);
+      span.dataset.w = x1 - x0;
+    }
+    page.appendChild(div);
+  }
+  // stretch each token to exactly cover its box (offsetWidth ignores the page transform)
+  for (const span of page.querySelectorAll(".w")) {
+    const natural = span.offsetWidth;
+    if (natural > 0) span.style.transform = `scaleX(${span.dataset.w / natural})`;
+  }
+}
+
+function fit() {
+  const scale = Math.min(1, document.documentElement.clientWidth / img.naturalWidth);
+  page.style.transform = `scale(${scale})`;
+  page.style.height = `${img.naturalHeight}px`;
+  document.body.style.height = `${img.naturalHeight * scale + 26}px`;
+}
+
+img.onload = () => { build(); fit(); };
+img.src = DATA.image;
+addEventListener("resize", fit);
+addEventListener("keydown", (e) => {
+  if (e.key === "t" && !e.ctrlKey && !e.altKey) document.body.classList.toggle("show");
+});
+</script>

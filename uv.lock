@@ -201,6 +201,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jeepney" },
+    { name = "numpy" },
     { name = "onnxruntime" },
     { name = "pillow" },
     { name = "rapidocr" },
@@ -210,6 +211,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "jeepney", specifier = ">=0.9" },
+    { name = "numpy", specifier = ">=2" },
     { name = "onnxruntime", specifier = ">=1.20" },
     { name = "pillow", specifier = ">=11" },
     { name = "rapidocr", specifier = ">=3.4" },

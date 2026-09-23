@@ -19,9 +19,10 @@
 uv run linux-recall-capture [--mode window|fullscreen|monitor] [--full-res] [--no-ocr] \
     [--ocr-timeout 60] [--no-notify] [--trigger test] [--data-dir DIR]   # 截一次（快捷键跑的就是它）
 uv run linux-recall-daemon --interval 60 --threshold 0.95 [-v]           # 定时截图 + 去重
+uv run linux-recall-click [--timeout 60]                                 # Click to Do（快捷键 Meta+Alt+C）
 uv run python -m linux_recall.kwin       # 打印活动窗口和各显示器信息
 uv run python -m linux_recall.browser    # 打印活动浏览器标签的 URL
-./scripts/install-hotkey.sh              # 注册全局快捷键 Meta+Alt+R（KEY=... 可改）
+./scripts/install-hotkey.sh              # 注册 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do），CAPTURE_KEY/CLICK_KEY 可改
 source scripts/lr.zsh                    # lr-search / lr（fzf，kitty 里预览高亮截图）/ lr-highlight
 
 systemctl --user restart linux-recall            # 改了 Python 代码后必须重启，daemon 才会用新代码
@@ -45,7 +46,8 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
   - `daemon.jsonl`：daemon 每轮的决定（keep/skip、相似度），用来统计去重效果
   - `preview/`：`lr` 生成的高亮预览图
   - 截图过程中的原始分辨率图片、KWin 临时脚本（用完即删）
-- 快捷键 desktop 文件：`~/.local/share/applications/net.local.linux-recall-capture.desktop`
+- 快捷键 desktop 文件：`~/.local/share/applications/net.local.linux-recall-{capture,click}.desktop`
+- Click to Do 的页面和截图：`~/.cache/linux_recall/clicktodo/`（一天后自动删除），日志 `~/.cache/linux_recall/clicktodo.log`
 
 ## 代码结构（`linux_recall/`）
 
@@ -58,6 +60,14 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - `browser.py`：Plasma Browser Integration `/TabsRunner`（krunner1 接口）。把窗口标题去掉浏览器后缀，找 `relevance == 1` 且标题完全相同的标签页
 - `screenshot.py`：调用 spectacle。`window` 模式是 `-a -S`（`-S` 去掉约 250px 的透明阴影），`fullscreen` 是 `-f`；都加 `--new-instance`，否则快捷键和 daemon 同时截图时，第二次调用会被转发给第一个进程，`--output` 丢失。`window_region()` 把窗口的逻辑坐标换算成整桌面截图的像素：spectacle 用最高的缩放比（2）渲染整个桌面，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
 - `ocr.py`：先用 PaddleOCR 云端 API，只上传要识别的区域（`window` 模式是整张图，`fullscreen` 模式是活动窗口那块）。`--ocr-timeout`（默认 60 秒）限制整个云端过程，包括排队重试、每次上传和轮询；超时或出任何错误，就用本地 RapidOCR 识别同一块图
+- `clicktodo.py` + `clicktodo.html`：Click to Do。`spectacle -a -S` 原始分辨率截图 → `ocr.cloud_result(..., word_boxes=True)`（只用云端，失败就报错退出）→ 把截图和 OCR 结果写成一个 HTML 页面 → `firefox --new-window`。页面用 pdf.js 的做法：截图上面叠一层透明文字，**每个字符**是一个绝对定位的 `<span>`，用 `scaleX` 拉伸到正好盖住它的框；每行一个 `<div>`，复制时保留换行。`reading_order()` 先把行分成列再排序，否则跨行选择会把侧边栏一起选进来。测试可以用 `firefox --headless --no-remote --profile <临时目录> --screenshot`，页面里加 `show` class 就能看到文字层
+- `textfit.py`：把百度的文字重新对齐到截图的像素上，每个字符一个框（百度的行框和文字准，词框不准，见下面的坑）。步骤：
+  - 墨迹：行框上面去掉 1/8（上一行的下伸部分），下面保留（`_` 在最底下）；阈值按这一行的对比度自适应（灰字和背景只差约 55，黑字差约 250）
+  - 去掉图标：墨迹按“比空格宽得多的空白”分块，和任何词的百度范围都不重叠的块是图标
+  - 分词：每个空格取离百度给的位置最近的空白（不能取最宽的空白：全角标点“），”自带的留白比空格还宽）
+  - 分字符：词里每段连续墨迹是一个字形，用动态规划 `_align` 分配：一个字符可以占几个字形（中文偏旁），几个字符可以共用一个字形（字母粘连），图标字形可以跳过；代价比较的是相邻字符的间距（百度的绝对位置在行中间会偏一个字符以上，间距却准）。**数量相等也不能直接一一对应**：“机制：Windows”里“制”是两个字形、“ws”粘成一个，数量刚好相等，一一对应会让后面全部错一位
+  - 哪一步失败，这一行就保留百度的位置（按 `_advance` 的粗略字宽分给每个字符）
+  - 改了这里要跑 `uv run python scripts/check_textfit.py`：用 `~/.cache/linux_recall/clicktodo/` 里保存的百度原始结果（`<id>.ocr.json`）重新对齐，标出可疑的行，再渲染出来看
 - `scripts/lr`：fzf 搜索。每行是一处 OCR 匹配；fzf 调用 `lr --preview` 生成预览（和 `~/.config/kitty/bin/kitty_fzf_tab.sh` 同一个模式），用 `kitten icat --unicode-placeholder` 在 kitty 里显示高亮后的截图
 
 ## 数据格式
@@ -76,6 +86,8 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - **KWin 上没有 grim / wlr-screencopy / ext-image-copy-capture**。`org.kde.KWin.ScreenShot2` 只接受 desktop 文件白名单里的调用方，所以借用 spectacle。`spectacle --scaled` 只对 `-f` 有效，`-a` 截图的缩小要自己做
 - **TabsRunner 会缓存标签列表**：第一次 `Match` 之后一直用旧数据，直到调用 `Teardown()`。每次查询前后都必须 `Teardown`，否则拿到的是旧标题。它也不标记哪个是活动标签，只能按标题匹配；标题相同的多个标签会标成 `"match": "ambiguous"`。Firefox 隐私窗口直接跳过
 - **PaddleOCR 云端 API**（参考 `~/WorkSpace/anki_agent/anki_ocr_paddle.py`）：
+  - `optionalPayload` 里加 `"returnWordBox": true`，结果会多出 `text_word`（每行的词）和 `text_word_boxes`（每个词的 `[x0, y0, x1, y1]`）；把一行的词直接拼起来就等于这一行的文字
+  - **词框不能直接用**：在 Firefox 窗口上左边缘中位数偏右 7px（最多 11px），“System Settings” 这一行的框整个是错的（System 宽了一倍、从左边的图标开始），shell 提示符里 environment 晚了 12px，导致从 n 开始拖会选到 e。所以要用 `textfit.py` 对齐到像素。修 textfit 时每一步都要在**所有**保存的页面、**所有**行上验证（`scripts/check_textfit.py`），只看出问题的那一行会顾此失彼
   - 检测时默认把最长边缩到 960 px，所以整张三屏桌面（6098 px）只认出 2 行；只上传一个窗口就能认出 100 多行
   - 把 `textDetLimitSideLen` 调大（试过 3938/4000/6098），任务会以 500 失败；服务端 `max_side_limit=4000`，超过 4000 的图先缩小再上传
   - 返回 400 且 `code 10010`（“任务提交队列已满”）表示服务端繁忙，会退避重试；拥堵时任务会在队列里 `pending` 好几分钟，实际处理只要 1–10 秒
@@ -90,6 +102,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 1. ✅ 快捷键截图：活动窗口 + 窗口信息 + 浏览器 URL + OCR → JSON
 2. ✅ 定时截图 + dHash 去重（daemon）；待做：按活动窗口切换 / idle（`ext-idle-notify-v1`）触发，而不是只靠定时
 3. ✅ 命令行搜索（jq、`lr`）；待做：SQLite FTS5 索引（中文用 jieba 或 simple tokenizer）
-4. 省空间：✅ 只存活动窗口、缩小到逻辑分辨率；待做：旧图片只留 N 天（JSON 永久保留）、降低 WebP 质量
-5. 更多应用上下文：Okular、kitty（`kitty @ ls`）、Anki（AnkiConnect）、Dolphin
-6. 隐私：排除名单（密码管理器、隐私窗口、银行网站）、加密存储、一键暂停；补跑 `ocr` 为 `null` 的截图
+4. ✅ Click to Do 第一版（Firefox 页面、按单词选择、复制）；待做：全屏覆盖层（pywebview）、更快的识别
+5. 省空间：✅ 只存活动窗口、缩小到逻辑分辨率；待做：旧图片只留 N 天（JSON 永久保留）、降低 WebP 质量
+6. 更多应用上下文：Okular、kitty（`kitty @ ls`）、Anki（AnkiConnect）、Dolphin
+7. 隐私：排除名单（密码管理器、隐私窗口、银行网站）、加密存储、一键暂停；补跑 `ocr` 为 `null` 的截图

@@ -1,8 +1,9 @@
 # linux_recall 的命令行搜索函数。在 ~/.zshrc 里 source 这个文件：
 #   source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
-# 依赖: jq, fzf, xdg-open
+# 依赖: jq, fzf, xdg-open, ImageMagick；lr 的图片预览需要 kitty
 
 LR_CAPTURES=${XDG_DATA_HOME:-$HOME/.local/share}/linux_recall/captures
+LR_SCRIPTS=${${(%):-%x}:A:h}  # directory of this file
 
 # lr-search <关键词>: 在 OCR 文字、窗口标题、URL 里搜索（原样匹配，不区分大小写）
 # 输出: 时间 <TAB> 程序 <TAB> URL 或窗口标题 <TAB> 截图路径
@@ -14,16 +15,8 @@ lr-search() {
          (input_filename | sub("\\.json$"; ".webp"))] | @tsv' "$LR_CAPTURES"/*/*.json
 }
 
-# lr [初始查询]: 用 fzf 交互式地模糊搜索所有截图；右侧预览 OCR 文字，回车打开截图
-lr() {
-    jq -r '[input_filename, .captured_at[:16], .window.app_name,
-            (.browser.url // .window.caption), (.ocr.text // "" | gsub("\n"; " "))] | @tsv' \
-        "$LR_CAPTURES"/*/*.json |
-    fzf --delimiter '\t' --with-nth 2.. --query "${1:-}" \
-        --preview 'jq -r ".window.app_name, .window.caption, .browser.url, \"\", .ocr.text" {1}' \
-        --preview-window 'right,50%,wrap' \
-        --bind 'enter:execute-silent(f={1}; xdg-open "${f%.json}.webp")'
-}
+# lr [关键词]: fzf 交互式搜索，在 kitty 里直接预览截图，见 scripts/lr
+alias lr="$LR_SCRIPTS/lr"
 
 # lr-highlight <json> <关键词> [输出.png]: 在截图上用红框标出匹配的 OCR 行，裁剪到 OCR 区域
 lr-highlight() {

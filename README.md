@@ -1,6 +1,6 @@
 # linux_recall
 
-KDE Plasma 6 (Wayland) 上的 Windows Recall 式工具：按一个快捷键，保存整个桌面的截图，同时记录当时的活动窗口、浏览器网址和窗口里的文字（OCR），存成一张图片加一个 JSON 文件，之后可以用命令行搜索。
+KDE Plasma 6 (Wayland) 上的 Windows Recall 式工具：按一个快捷键（或者由后台服务每分钟自动），保存活动窗口的截图，同时记录窗口信息、浏览器网址和窗口里的文字（OCR），存成一张图片加一个 JSON 文件，之后可以用命令行搜索。
 
 ## 安装
 
@@ -22,13 +22,15 @@ uv sync
 - 按 **`Meta+Alt+R`**，或者在命令行运行：
 
   ```sh
-  uv run linux-recall-capture                     # 截整个桌面，只 OCR 活动窗口
-  uv run linux-recall-capture --mode window       # 只截活动窗口
+  uv run linux-recall-capture                     # 只截活动窗口（默认）
+  uv run linux-recall-capture --mode fullscreen   # 截整个桌面，只 OCR 活动窗口
+  uv run linux-recall-capture --full-res          # 保留 HiDPI 原始分辨率，不缩小
   uv run linux-recall-capture --ocr-timeout 30    # 云端 OCR 最多等 30 秒，超时改用本地
   uv run linux-recall-capture --no-ocr            # 不做 OCR
   ```
 
-- 截图和窗口信息约 2 秒内保存好；OCR 结果稍后写进同一个 JSON（云端通常 5–60 秒）
+- 截图和窗口信息约 1 秒内保存好；OCR 结果稍后写进同一个 JSON（云端通常 5–60 秒）
+- 为了省空间，保存的图片会按屏幕缩放比缩小到逻辑分辨率（2× 屏幕上每边缩小一半，一张窗口截图约 150 KB）。OCR 仍然用原始分辨率识别，识别完就删除原图，所以缩小不影响识别效果
 - 完成后会弹一个系统通知
 
 ## 数据在哪里
@@ -36,7 +38,7 @@ uv sync
 ```
 ~/.local/share/linux_recall/captures/
 └── 2026-09-23/
-    ├── 20260923-205142-366.webp    ← 整个桌面的截图
+    ├── 20260923-205142-366.webp    ← 活动窗口的截图
     └── 20260923-205142-366.json    ← 窗口、网址、OCR
 ~/.cache/linux_recall/capture.log   ← 日志，可以随时删除
 ```
@@ -46,7 +48,9 @@ JSON 的主要字段：
 ```jsonc
 {
   "captured_at": "2026-09-23T20:51:42.366+02:00",
-  "screenshot": {"file": "20260923-205142-366.webp", "width": 6098, "height": 4626},
+  "screenshot": {"file": "20260923-205142-366.webp", "mode": "window", "width": 1969, "height": 1068,
+                 "scale": 0.5128,                  // 保存的图片相对原始截图的缩放比
+                 "captured_width": 3840, "captured_height": 2083},
   "window": {
     "app_name": "Firefox",                          // 程序名
     "caption": "Why the US-China Moon race … — Mozilla Firefox",  // 窗口标题
@@ -64,7 +68,56 @@ JSON 的主要字段：
 }
 ```
 
-`box` 和 `region` 都是整张截图里的像素坐标。OCR 失败时 `ocr` 为 `null`。
+`box` 和 `region` 都是保存下来的那张图片里的像素坐标。OCR 失败时 `ocr` 为 `null`。旧的截图（`schema_version` < 4）是整个桌面、没有缩小。
+
+## 后台自动截图
+
+`systemd/linux-recall.service` 每分钟截一次活动窗口；如果和上一次保存的截图是同一个程序、而且画面相似度 ≥ 0.95（dHash），就不保存。锁屏时跳过。
+
+```sh
+cp systemd/linux-recall.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now linux-recall
+```
+
+**每次运行的结果**：每一轮都会在日志里写一行，说明这次保存了（`KEEP`）还是因为太相似而跳过了（`SKIP`）：
+
+```sh
+journalctl --user -u linux-recall -f -o cat
+```
+
+```
+INFO KEEP  kitty        similarity 0.543 (threshold 0.95)  changed  [kept 2, skipped 0]
+INFO SKIP  kitty        similarity 1.000 (threshold 0.95)  similar  [kept 2, skipped 1]
+INFO KEEP  firefox      similarity 0.612 (threshold 0.95)  app kitty -> firefox  [kept 3, skipped 1]
+INFO SKIP  screen locked  [kept 3, skipped 2]
+```
+
+`reason` 的含义：`first` 服务启动后的第一张；`changed` 同一个程序但画面变了；`similar` 太相似，没保存；`app A -> B` 换了程序（不管多相似都保存）；`locked` 锁屏。
+
+**去重效果统计**：每一轮也会追加一条记录到 `~/.cache/linux_recall/daemon.jsonl`：
+
+```json
+{"time": "2026-09-23T21:44:14+02:00", "decision": "keep", "reason": "changed", "app": "kitty", "similarity": 0.543, "threshold": 0.95, "file": ".../20260923-214413-457.json"}
+```
+
+```sh
+cd ~/.cache/linux_recall
+
+# 总共几轮、保存几张、跳过几张、跳过比例
+jq -s '{cycles: length, kept: map(select(.decision == "keep")) | length,
+        skipped: map(select(.decision == "skip")) | length}
+       | .skip_rate = "\(if .cycles > 0 then .skipped * 100 / .cycles | round else 0 end)%"' daemon.jsonl
+
+# 相似度分布（按 0.05 分组），用来判断阈值是否合适
+jq -r 'select(.similarity != null) | "\(.similarity * 20 | floor / 20)"' daemon.jsonl | sort | uniq -c
+
+# 每个程序各保存/跳过了多少
+jq -s -c 'map(select(.reason == "similar" or .reason == "changed")) | group_by(.app)
+          | map({app: .[0].app, kept: map(select(.decision == "keep")) | length,
+                 skipped: map(select(.decision == "skip")) | length})' daemon.jsonl
+```
+
+想多保存一些，就调低 service 里的 `--threshold`；想少保存一些就调高，然后 `systemctl --user daemon-reload && systemctl --user restart linux-recall`。
 
 ## 用 jq 查看
 
@@ -162,7 +215,7 @@ source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
 | 命令 | 作用 |
 |---|---|
 | `lr-search <关键词>` | 就是上面那条 jq 命令，输出 时间 / 程序 / 网址或标题 / 截图路径 |
-| `lr [关键词]` | 用 fzf 交互式搜索所有截图：右侧预览程序、标题、网址和 OCR 文字，回车用默认看图程序打开截图 |
+| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 │ 所在那行文字，关键词标红 │ 时间和网站）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车打开截图，`ctrl-o` 打开网址 |
 | `lr-highlight <json> <关键词> [输出.png]` | 在截图上用红框标出匹配的行，并裁剪到 OCR 区域，默认输出 `/tmp/lr-highlight.png` |
 
 ```sh

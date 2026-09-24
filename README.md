@@ -17,6 +17,7 @@ https://github.com/user-attachments/assets/8ed5c7c4-f2be-433c-bbae-9699dce021f6
 
 - **Capture**: active window only, downscaled to logical pixels (about 150 KB per shot); hotkey `Meta+Alt+R` or a systemd user service every 60 s
 - **Deduplication**: same app and a perceptually similar image (dHash) → the shot is dropped; every decision is logged with its similarity score
+- **Time per app**: `linux-recall-usage` sums how long each app was in front from the daemon's log, per day if you like, with browsers split by site and kitty by foreground program (`--by detail`)
 - **Context per app**:
   - browsers: URL of the active tab
   - Zotero: item, DOI, **current page**, and a `zotero://open-pdf/...?page=N` link

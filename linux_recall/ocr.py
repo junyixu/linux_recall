@@ -10,7 +10,8 @@ on ``~/WorkSpace/anki_agent/anki_ocr_paddle.py``.
 Local: RapidOCR (PaddleOCR models on ONNX Runtime), used whenever the cloud
 misses its deadline or errors out — its queue can stall for minutes. It runs
 in a child process: ONNX Runtime keeps ~400 MB after the first run, which the
-long-running daemon would otherwise hold for good.
+long-running daemon would otherwise hold for good. RapidOCR is optional
+(the AUR package only suggests it); without it, only the cloud is tried.
 """
 
 import json
@@ -21,6 +22,7 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from importlib.metadata import version
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,7 @@ MODEL = "PP-OCRv6"
 MAX_SIDE = 4000  # server-side max_side_limit; larger crops get shrunk first
 QUEUE_FULL = 10010
 CLOUD_TIMEOUT = 60.0
+HAS_LOCAL = find_spec("rapidocr") is not None
 
 log = logging.getLogger("linux_recall")
 
@@ -140,6 +143,9 @@ def run_ocr(image_path: Path, region: tuple[int, int, int, int] | None = None,
     ``fallback_reason`` is recorded when the caller already skipped the cloud.
     Returned boxes are in full-screenshot pixels, not relative to the region.
     """
+    engines = [e for e in engines if e != "local" or HAS_LOCAL]
+    if not engines:
+        raise RuntimeError("local OCR requested but RapidOCR is not installed")
     crop = None
     with Image.open(image_path) as im:
         region = region or (0, 0, *im.size)

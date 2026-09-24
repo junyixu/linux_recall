@@ -12,7 +12,7 @@ to 30 min; the first shot after the pause is the probe. Missing token and
 HTTP 401/403 won't fix themselves, so they pause the longest and notify once.
 While the cloud is down, local RapidOCR (a few CPU-heavy seconds per shot)
 only runs on shots older than ``LOCAL_AFTER``, when the user is idle and the
-laptop is on mains power.
+laptop is on mains power, and only if RapidOCR is installed.
 """
 
 import json
@@ -28,6 +28,7 @@ from jeepney.io.blocking import open_dbus_connection
 from jeepney.wrappers import Properties
 
 from linux_recall.capture import add_ocr, notify
+from linux_recall.ocr import HAS_LOCAL
 from linux_recall.paths import CACHE_DIR
 
 log = logging.getLogger("linux_recall")
@@ -154,7 +155,7 @@ class OcrQueue:
             return self._ocr(jobs[-1], cloud=True)
         # cloud down: local OCR, but only when it won't get in the user's way
         old = [j for j in jobs if time.time() - j.stat().st_mtime >= LOCAL_AFTER]
-        if old and self.idle and on_mains():
+        if old and HAS_LOCAL and self.idle and on_mains():
             return self._ocr(old[-1], cloud=False)
         return False
 

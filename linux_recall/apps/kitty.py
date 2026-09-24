@@ -14,8 +14,8 @@ import os
 import subprocess
 from typing import Any
 
-from linux_recall.claude import get_claude, is_claude
-from linux_recall.nvim import TIMEOUT, children, get_nvim, is_nvim, is_secret
+from linux_recall.apps.claude import get_claude, is_claude
+from linux_recall.apps.nvim import TIMEOUT, children, get_nvim, is_nvim, is_secret
 
 MAX_OUTPUT_LINES = 200  # the end of a long output is kept
 MAX_LINE = 500

@@ -26,17 +26,17 @@ from PIL import Image
 from jeepney import DBusAddress, new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
-from linux_recall.browser import get_active_tab, is_browser
+from linux_recall.apps.anki import get_anki_context, is_anki
+from linux_recall.apps.browser import get_active_tab, is_browser
+from linux_recall.apps.kitty import get_kitty_context, is_kitty
+from linux_recall.apps.nvim import get_neovide_context, is_neovide
+from linux_recall.apps.zotero import get_open_item, is_zotero
 from linux_recall.exclude import excluded
 from linux_recall.kwin import get_kwin_state
 from linux_recall.ocr import CLOUD_TIMEOUT, run_ocr
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 from linux_recall.similarity import dhash
-from linux_recall.zotero import get_open_item, is_zotero
-from linux_recall.anki import get_anki_context, is_anki
-from linux_recall.kitty import get_kitty_context, is_kitty
-from linux_recall.nvim import get_neovide_context, is_neovide
 
 SCHEMA_VERSION = 10  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
                     # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels;

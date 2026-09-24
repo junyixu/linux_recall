@@ -33,6 +33,47 @@ https://github.com/user-attachments/assets/99fa2c02-1c16-431c-baca-bb3f1fdb6e25
 - **Search**: `jq` recipes and `lrf`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page / Anki card / Obsidian note / Neovim file / kitty window
 - **Click to Do**: `Meta+Alt+C` turns the active window into a page where the text in the screenshot is selectable word by word
 
+## Install
+
+Requirements: KDE Plasma 6 (Wayland), Python ≥ 3.12, `spectacle`; [uv](https://docs.astral.sh/uv/) when running from source.
+Optional: `plasma-browser-integration` plus its browser extension (URLs); Zotero 7+ with *Settings → Advanced →
+Allow other applications on this computer to communicate with Zotero*; Anki with
+[AnkiConnect](https://ankiweb.net/shared/info/2055492159); Obsidian 1.12+ with its CLI enabled; `PADDLEOCR_TOKEN` for cloud OCR;
+`jq`, `fzf`, ImageMagick and kitty for search.
+
+### Arch Linux
+
+[`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git) is in the AUR.
+It builds from the latest commit and pulls in its dependencies from pacman (`python-rapidocr` also comes from the AUR),
+so use an AUR helper:
+
+```sh
+paru -S linux-recall-git                        # or yay -S, or makepkg -si in a clone of the AUR repo
+linux-recall-install-hotkey                     # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
+systemctl --user enable --now linux-recall      # optional: capture every minute
+source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / lr-highlight (lrf is in /usr/bin)
+```
+
+The search tools are optional dependencies: `pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`.
+With the package, drop `uv run` from the commands below.
+
+### From source
+
+```sh
+git clone https://github.com/junyixu/linux_recall ~/WorkSpace/windows_recall_linux
+cd ~/WorkSpace/windows_recall_linux
+uv sync
+./scripts/install-hotkey.sh          # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
+
+# optional: capture every minute; uv.conf points the unit at .venv (edit it if you cloned elsewhere)
+cp systemd/linux-recall.service ~/.config/systemd/user/
+install -Dm644 systemd/uv.conf ~/.config/systemd/user/linux-recall.service.d/uv.conf
+systemctl --user daemon-reload && systemctl --user enable --now linux-recall
+```
+
+Put `PADDLEOCR_TOKEN=...` in `~/.config/environment.d/*.conf` so the hotkey and the service see it.
+Without it, OCR is local only.
+
 ## Why this is harder on Wayland
 
 On X11, any client can read the window list, the focused window and any window's pixels.
@@ -203,47 +244,6 @@ absolutely positioned `<span>`, stretched with `scaleX` to cover its box, and li
 so a drag doesn't pull in the sidebar. The cloud's word boxes are often off by several pixels (7 px median, a
 whole word in the worst case), so `clicktodo/textfit.py` re-aligns every character to the actual ink in the screenshot,
 using dynamic programming over glyph gaps.
-
-## Install
-
-Requirements: KDE Plasma 6 (Wayland), Python ≥ 3.12, `spectacle`; [uv](https://docs.astral.sh/uv/) when running from source.
-Optional: `plasma-browser-integration` plus its browser extension (URLs); Zotero 7+ with *Settings → Advanced →
-Allow other applications on this computer to communicate with Zotero*; Anki with
-[AnkiConnect](https://ankiweb.net/shared/info/2055492159); Obsidian 1.12+ with its CLI enabled; `PADDLEOCR_TOKEN` for cloud OCR;
-`jq`, `fzf`, ImageMagick and kitty for search.
-
-### Arch Linux
-
-[`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git) is in the AUR.
-It builds from the latest commit and pulls in its dependencies from pacman (`python-rapidocr` also comes from the AUR),
-so use an AUR helper:
-
-```sh
-paru -S linux-recall-git                        # or yay -S, or makepkg -si in a clone of the AUR repo
-linux-recall-install-hotkey                     # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
-systemctl --user enable --now linux-recall      # optional: capture every minute
-source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / lr-highlight (lrf is in /usr/bin)
-```
-
-The search tools are optional dependencies: `pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`.
-With the package, drop `uv run` from the commands below.
-
-### From source
-
-```sh
-git clone https://github.com/junyixu/linux_recall ~/WorkSpace/windows_recall_linux
-cd ~/WorkSpace/windows_recall_linux
-uv sync
-./scripts/install-hotkey.sh          # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
-
-# optional: capture every minute; uv.conf points the unit at .venv (edit it if you cloned elsewhere)
-cp systemd/linux-recall.service ~/.config/systemd/user/
-install -Dm644 systemd/uv.conf ~/.config/systemd/user/linux-recall.service.d/uv.conf
-systemctl --user daemon-reload && systemctl --user enable --now linux-recall
-```
-
-Put `PADDLEOCR_TOKEN=...` in `~/.config/environment.d/*.conf` so the hotkey and the service see it.
-Without it, OCR is local only.
 
 ## Usage
 

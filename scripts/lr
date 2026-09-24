@@ -1,9 +1,14 @@
 #!/usr/bin/bash
 # lr [关键词]: 用 fzf 搜索 linux_recall 的截图。
-#   有关键词: 每一行是一处匹配: 程序 │ 匹配所在的那行文字(关键词标红) │ 时间 + 网站/窗口标题
+#   有关键词: 每一行是一处匹配: 程序 时间 │ 匹配所在的那行文字(关键词标红) │ 网站/窗口标题
+#   Neovim(kitty 里或 Neovide)的截图还会搜截图时每个窗口里看得到的 buffer 原文(nvim.windows)，显示成 文件名:行号 文字；
+#   kitty 里的 shell 搜上一条命令和它的输出(kitty.shell)，Claude Code 搜会话标题和最后一次提问(kitty.claude)
 #   没有关键词: 每一行是一张截图
 # 右侧预览: 时间/程序/标题/网址 + 截图(在 kitty 里显示图片，匹配的行用红框标出)
-# enter 打开原截图；ctrl-o 打开当时的内容: 网址(浏览器)、论文那一页(Zotero)、那张卡片(Anki 的 Browse 窗口)
+# enter 输出选中截图的 JSON 路径；ctrl-f 输出截图时 Neovim 打开的文件；ctrl-s 打开原截图；ctrl-o 打开当时的内容: 网址(浏览器)、论文那一页(Zotero)、那张卡片(Anki 的 Browse 窗口)、
+#   Neovim 里的文件和行(匹配 buffer 原文的行跳到匹配的那一行，否则跳到截图时的光标；
+#   那个 nvim 还开着就在它里面打开并切到它的 kitty 窗口，否则新开一个 kitty tab)、
+#   其他 kitty 截图: 那个 kitty 窗口(或 tab)还开着就切过去；都关了而截图时在跑 Claude Code，就新开 tab 运行 claude --resume
 # 依赖: jq, fzf, ImageMagick(magick)；图片预览需要 kitty
 set -euo pipefail
 
@@ -16,21 +21,38 @@ JQ_DEFS='
 def esc: gsub("(?<c>[\\\\.*+?^$(){}|\\[\\]])"; "\\\(.c)");
 def hl($q): if $q == "" then . else gsub("(?<m>\($q | esc))"; "\u001b[1;31m\(.m)\u001b[0m"; "i") end;
 def has($q): ascii_downcase | contains($q | ascii_downcase);
+# kitty 里的 Neovim 和 Neovide 记录的字段一样
+def nvim: .kitty.nvim // .neovide.nvim;
+# 有名字的文件(没有名字的 buffer 是 "")
+def nvim_file: nvim.file // "" | select(. != "");
+# kitty 里前台是 Neovim / Claude Code 时显示成 kitty(neovim) / kitty(claude)
+def app: (.window.app_name // "?") + (if .kitty.nvim then "(neovim)" elif .kitty.claude then "(claude)" else "" end);
 '
 
 preview() {
-    local json=$1 idx=$2 q=${LR_QUERY:-}
+    local json=$1 idx=$2 jump=${3:-} q=${LR_QUERY:-}
 
     # 头部: 时间 程序 / 窗口标题 / 网址 / 匹配的那行
-    jq -r --arg q "$q" --argjson idx "$idx" "$JQ_DEFS"'
-        "\u001b[1m\(.captured_at[:16] | sub("T"; " "))  \(.window.app_name // "?")\u001b[0m",
+    jq -r --arg q "$q" --argjson idx "$idx" --arg jump "$jump" "$JQ_DEFS"'
+        "\u001b[1m\(.captured_at[:16] | sub("T"; " "))  \(app)\u001b[0m",
         (.window.caption // "" | hl($q)),
         (.browser.url // empty | "\u001b[4;34m\(.)\u001b[0m"),
         (.zotero // empty | "\u001b[35mZotero: \(.title | hl($q)) — \(.creators[:3] | join(", ")) \(.date // "")"
             + (if .page then "  p.\(.page)" else "" end) + (if .doi then "  doi:\(.doi)" else "" end) + "\u001b[0m"),
+        (nvim_file as $file | "\u001b[36mnvim: \($file | hl($q)):\(nvim.line)\u001b[0m"),
+        (.kitty.claude // empty | "\u001b[35mClaude: \(.title // .name // "" | hl($q))  \u001b[2m\(.session_id)\u001b[0m",
+            (.last_prompt // empty | "\u001b[2m> \u001b[0m\(.[:300] | gsub("\n"; " ") | hl($q))")),
+        (select(.kitty.claude == null) | .kitty.shell // empty | select(.cmdline)
+            | "\u001b[33m$ \(.cmdline | hl($q))\u001b[0m"
+              + (if .at_prompt | not then "  \u001b[2m(运行中)\u001b[0m" elif .exit_status != 0 then "  \u001b[31m(exit \(.exit_status))\u001b[0m" else "" end)),
         (.anki // empty | select(.browse_query) | "\u001b[32mAnki: \(.deck // .model // "")  \(.browse_query)\u001b[0m",
             ((.fields // .notes[0].fields // {}) | to_entries[] | "\u001b[2m\(.key):\u001b[0m \(.value | gsub("\n"; " ") | .[:200] | hl($q))")),
         (if $idx >= 0 then "\u001b[2m> \u001b[0m" + (.ocr.lines[$idx].text | hl($q)) else empty end),
+        # 匹配的是 Neovim buffer 原文: 显示 文件:行号 和那一行
+        (if $jump != "" then ($jump | capture("^(?<n>[0-9]+):(?<f>.*)$")) as $j
+            | "\u001b[2m> \($j.f | split("/") | last):\($j.n)\u001b[0m "
+              + ([nvim.windows[] | select(.file == $j.f and .lines) | .lines[($j.n | tonumber) - .first] // empty][0] // "" | hl($q))
+         else empty end),
         ""' "$json"
 
     if [[ -z ${KITTY_WINDOW_ID:-} ]] || ! command -v kitten >/dev/null; then
@@ -65,9 +87,68 @@ preview() {
         --place="${cols}x${lines}@0x0" "$img" | sed '$d' | sed $'$s/$/\e[m/'
 }
 
+# 在截图时的那个 Neovim 里打开文件并跳到那一行(Lua 通过 luaeval 的 _A 拿参数，放在 vimscript 的单引号字符串里，所以不能有单引号)
+NVIM_JUMP='(function()
+  vim.cmd.drop(vim.fn.fnameescape(_A[1]))
+  vim.api.nvim_win_set_cursor(0, {math.min(_A[2], vim.api.nvim_buf_line_count(0)), _A[3] - 1})
+  vim.cmd("normal! zvzz")
+end)()'
+
+# ctrl-o 打开 Neovim 截图: 那个 nvim 还开着 -> 在它里面跳到文件/行，再切到它所在的 kitty 窗口或 Neovide 窗口；
+# 已经关了 -> 在 kitty 里新开一个 tab 运行 nvim +行 文件，Neovide 的截图就新开一个 Neovide
+open_nvim() {
+    local json=$1 jump=${2:-} server file line cwd kitty win neovide args
+    { read -r server; read -r file; read -r line; read -r cwd; read -r kitty; read -r win; read -r neovide; } < <(
+        jq -r "$JQ_DEFS"'nvim.address // "", nvim.file, nvim.line // 1, nvim.cwd // .kitty.window.cwd // env.HOME,
+            .kitty.address // "", .kitty.window.id // "", (if .neovide then .window.internal_id // "" else "" end)' "$json")
+    [[ -z $neovide ]] && kitty=${kitty:-${KITTY_LISTEN_ON:-}}  # 早期的 schema 7 截图没有记录 kitty 的地址
+    # vimscript 的 list 字面量: JSON 的字符串转义和 vimscript 的双引号字符串兼容
+    args=$(jq -c "$JQ_DEFS"'nvim | [.file, .line // 1, .col // 1]' "$json")
+    if [[ -n $jump ]]; then  # 行号:文件，来自匹配 buffer 原文的那一行
+        line=${jump%%:*} file=${jump#*:}
+        args=$(jq -nc --arg f "$file" --argjson n "$line" '[$f, $n, 1]')
+    fi
+    if [[ -S $server ]] &&
+        nvim --server "$server" --remote-expr "luaeval('$(tr '\n' ' ' <<<"$NVIM_JUMP")', $args)" >/dev/null 2>&1; then
+        if [[ -n $neovide ]]; then  # kdotool 的窗口 id 就是 KWin 的 internal_id
+            kdotool windowactivate "$neovide" >/dev/null 2>&1 || true
+        elif [[ -n $kitty && -n $win ]]; then
+            kitten @ --to "$kitty" focus-window --match "id:$win" >/dev/null 2>&1 || true
+        fi
+        return 0
+    fi
+    if [[ -n $neovide ]]; then  # neovide 默认自己 fork 到后台；-- 之后的参数传给 nvim
+        (cd "$cwd" && neovide -- "+$line" "$file" >/dev/null 2>&1)
+    elif [[ -n $kitty ]]; then
+        kitten @ --to "$kitty" launch --type=tab --cwd "$cwd" nvim "+$line" "$file" >/dev/null
+    else
+        kitty --detach --directory "$cwd" nvim "+$line" "$file"
+    fi
+}
+
+# ctrl-o 打开 kitty 截图(前台不是 Neovim): 那个 kitty 窗口还开着就切过去，窗口关了但 tab 还在就切到 tab。
+# kitty 的 window/tab id 在同一个 kitty 进程里不会重复使用，kitty 重启后 socket(带 pid)也变了，所以不会切错
+open_kitty() {
+    local json=$1 kitty win tab
+    { read -r kitty; read -r win; read -r tab; } < <(jq -r '.kitty | .address // "", .window.id, .tab.id' "$json")
+    kitty=${kitty:-${KITTY_LISTEN_ON:-}}
+    if [[ -n $kitty ]] && { kitten @ --to "$kitty" focus-window --match "id:$win" >/dev/null 2>&1 ||
+        kitten @ --to "$kitty" focus-tab --match "id:$tab" >/dev/null 2>&1; }; then
+        return 0
+    fi
+    # 截图时在跑 Claude Code: 在当时的目录里恢复那次会话
+    local sid cwd
+    { read -r sid; read -r cwd; } < <(jq -r '.kitty.claude // {} | .session_id // "", .cwd // env.HOME' "$json")
+    if [[ -n $sid && -n $kitty ]]; then
+        kitten @ --to "$kitty" launch --type=tab --cwd "$cwd" claude --resume "$sid" >/dev/null && return 0
+    fi
+    notify-send -a linux_recall -i dialog-information "lr: kitty 窗口已经关了" \
+        "$(jq -r '"\(.kitty.tab.title // "")  \(.kitty.window.cwd // "")"' "$json")"
+}
+
 # ctrl-o: 回到截图时正在看的东西
 open_context() {
-    local json=$1 target
+    local json=$1 jump=${2:-} target
     target=$(jq -r '.browser.url // .zotero.open_link // .zotero.select_link // empty' "$json")
     if [[ -n $target ]]; then
         xdg-open "$target"
@@ -87,49 +168,89 @@ open_context() {
         kdotool search --class anki --name '^Browse' windowactivate %1 >/dev/null 2>&1 || true
         return
     fi
+    if jq -e "$JQ_DEFS"'nvim_file' "$json" >/dev/null; then
+        open_nvim "$json" "$jump"
+        return
+    fi
+    if jq -e '.kitty.window.id' "$json" >/dev/null; then
+        open_kitty "$json"
+        return
+    fi
     # 旧截图(schema < 5/6)或者当时的程序没有可以打开的东西
     notify-send -a linux_recall -i dialog-information "lr: 没有可以打开的内容" \
-        "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片）"
+        "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片 / kitty 窗口）"
 }
 
 if [[ ${1:-} == --open ]]; then
-    open_context "$2"
+    open_context "$2" "${3:-}"
+    exit 0
+fi
+
+# ctrl-f: 有 Neovim 文件时输出它的路径并退出，没有就提示并留在 fzf 里(fzf 的 transform 执行这里输出的动作)。
+# 匹配 buffer 原文的行输出那一行所在的文件(分屏时不一定是当前文件)
+if [[ ${1:-} == --nvim-file ]]; then
+    if [[ -n ${3:-} ]]; then
+        echo 'become(f={3}; echo "${f#*:}")'
+    elif jq -e "$JQ_DEFS"'nvim_file' "$2" >/dev/null; then
+        echo 'become(jq -r ".kitty.nvim.file // .neovide.nvim.file" {1})'
+    else
+        notify-send -a linux_recall -i dialog-information "lr: 没有 Neovim 文件" \
+            "截图时不是 Neovim(kitty 前台或 Neovide)、buffer 没有名字，或者是旧截图(schema < 7)"
+    fi
     exit 0
 fi
 
 if [[ ${1:-} == --preview ]]; then
-    preview "$2" "$3"
+    preview "$2" "$3" "${4:-}"
     exit 0
 fi
 
 q=${1:-}
 export LR_QUERY=$q
 
-# 每行: json路径 <TAB> OCR行号(-1 表示不是 OCR 行) <TAB> 程序 <TAB> 文字 <TAB> 时间+网站/标题
+# 每行: json路径 <TAB> OCR行号(-1 表示不是 OCR 行) <TAB> 跳转目标(行号:文件，只有匹配 Neovim buffer 原文的行有)
+#       <TAB> 程序+时间 <TAB> 文字 <TAB> 网站/标题
 rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
     input_filename as $f
-    | ((.window.app_name // "?") + (" " * 12))[:12] as $app
+    # 程序名补齐到 13 个字符，后面接截图时间(月-日 时:分)
+    | ((app) + (" " * 13))[:13] + " \u001b[2m\(.captured_at[5:16] | sub("T"; " "))\u001b[0m" as $app
     | (.browser.url // "" | capture("^[a-z]+://(?<h>[^/]+)").h // null) as $host
     | (.zotero // null | if . then "\(.title[:40])" + (if .page then " p.\(.page)" else "" end) else null end) as $paper
     | (.anki // null | if .deck then "Anki: \(.deck)" else null end) as $card
-    # 没有关键词时第 2 列已经是窗口标题，第 3 列只放时间和网站
+    # 没有关键词时第 2 列已经是窗口标题，第 3 列只放网站
     | (if $q == "" then $host // $paper // $card // "" else $host // $paper // $card // (.window.caption // "")[:40] end) as $where
-    | "\u001b[2m\(.captured_at[5:16] | sub("T"; " "))  \($where)\u001b[0m" as $info
+    | "\u001b[2m\($where)\u001b[0m" as $info
     | if $q == "" then
-        [$f, "-1", $app, (.window.caption // ""), $info]
+        [$f, "-1", "", $app, (.window.caption // ""), $info]
       else
         ( (.ocr.lines // [] | to_entries[] | select(.value.text | has($q))
-            | [$f, (.key | tostring), $app, (.value.text | hl($q)), $info]),
+            | [$f, (.key | tostring), "", $app, (.value.text | hl($q)), $info]),
+          # Neovim: 每个窗口里看得到的 buffer 原文，匹配的每一行单独一行，带文件名和行号
+          (nvim.windows // [] | .[] | select(.lines) | . as $w | .lines | to_entries[]
+            | select(.value | has($q)) | ($w.first + .key) as $n
+            # 没有名字的 buffer 没法跳转
+            | [$f, "-1", "\($n):\($w.file)", $app,
+               "\u001b[36m\($w.file | split("/") | last):\($n)\u001b[0m \(.value | sub("^\\s+"; "") | hl($q))", $info]),
+          # kitty 里的 shell: 命令本身，以及它输出里匹配的每一行
+          (.kitty.shell // empty | select(.cmdline) | .cmdline as $cmd
+            | ((select($cmd | has($q)) | "\u001b[33m$\u001b[0m \($cmd | hl($q))"),
+               (.output // [] | .[] | select(has($q)) | "\u001b[33m$ \($cmd[:30])\u001b[0m \(hl($q))"))
+            | [$f, "-1", "", $app, ., $info]),
+          # Claude Code: 会话标题和最后一次提问里匹配的每一行
+          (.kitty.claude // empty
+            | ((.title // "" | select(has($q)) | "\u001b[35mClaude:\u001b[0m \(hl($q))"),
+               (.last_prompt // "" | split("\n")[] | select(has($q)) | "\u001b[35m>\u001b[0m \(hl($q))"))
+            | [$f, "-1", "", $app, ., $info]),
           # Anki: like OCR lines, one row per matching line of a card field
           (.anki | (.fields // .notes[0].fields // {}) | to_entries[] | .key as $field
             | .value | split("\n")[] | select(has($q))
-            | [$f, "-1", $app, "\u001b[2m\($field):\u001b[0m \(hl($q))", $info]),
-          ([.window.caption, .browser.url, .zotero.title, .zotero.doi] as $meta
+            | [$f, "-1", "", $app, "\u001b[2m\($field):\u001b[0m \(hl($q))", $info]),
+          ([.window.caption, .browser.url, .zotero.title, .zotero.doi, nvim.file] as $meta
             | select($meta | map(. // "") | join("\n") | has($q))
             # the Zotero caption is just "title - author - year", so show title + DOI instead
-            | (if .zotero then [.zotero.title, .zotero.doi] else [.window.caption, .browser.url] end
+            | (if .zotero then [.zotero.title, .zotero.doi] else [.window.caption, .browser.url, nvim.file] end
                | map(select(. != null) | hl($q)) | join("  ")) as $text
-            | [$f, "-1", $app, $text, $info]) )
+            | [$f, "-1", "", $app, $text, $info]) )
       end
     | join("\t")' "$captures"/*/*.json)
 
@@ -140,9 +261,11 @@ fi
 
 printf '%s\n' "$rows" |
     fzf --ansi --tac --tiebreak=index \
-        --delimiter '\t' --with-nth 3.. \
-        --header 'enter: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片' \
-        --preview "'$self' --preview {1} {2}" \
+        --delimiter '\t' --with-nth 4.. \
+        --header 'enter: 输出 JSON 路径 · ctrl-f: 输出 Neovim 文件路径 · ctrl-s: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片 / Neovim 文件 / kitty 窗口' \
+        --preview "'$self' --preview {1} {2} {3}" \
         --preview-window 'right,55%,wrap' \
-        --bind 'enter:execute-silent(f={1}; xdg-open "${f%.json}.webp")' \
-        --bind "ctrl-o:execute-silent('$self' --open {1})"
+        --bind 'enter:become(echo {1})' \
+        --bind "ctrl-f:transform('$self' --nvim-file {1} {3})" \
+        --bind 'ctrl-s:execute-silent(f={1}; xdg-open "${f%.json}.webp")' \
+        --bind "ctrl-o:execute-silent('$self' --open {1} {3})"

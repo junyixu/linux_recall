@@ -5,12 +5,16 @@
 LR_CAPTURES=${XDG_DATA_HOME:-$HOME/.local/share}/linux_recall/captures
 LR_SCRIPTS=${${(%):-%x}:A:h}  # directory of this file
 
-# lr-search <关键词>: 在 OCR 文字、窗口标题、URL 里搜索（原样匹配，不区分大小写）
+# lr-search <关键词>: 在 OCR 文字、窗口标题、URL、Anki 字段、Neovim 看得到的 buffer 原文、
+#   kitty 里 shell 的命令和输出、Claude Code 的会话标题和提问里搜索（原样匹配，不区分大小写）
 # 输出: 时间 <TAB> 程序 <TAB> URL 或窗口标题 <TAB> 截图路径
 lr-search() {
     jq -r --arg q "$1" '
       select([.ocr.text, .window.caption, .browser.url, .zotero.title, .zotero.doi,
-              (.anki | .fields // .notes[0].fields // {} | [.[]] | join("\n"))] | map(. // "") | join("\n")
+              (.anki | .fields // .notes[0].fields // {} | [.[]] | join("\n")),
+              ((.kitty.nvim // .neovide.nvim).windows // [] | map(.lines // [] | join("\n")) | join("\n")),
+              .kitty.shell.cmdline, (.kitty.shell.output // [] | join("\n")),
+              .kitty.claude.title, .kitty.claude.last_prompt] | map(. // "") | join("\n")
              | ascii_downcase | contains($q | ascii_downcase))
       | [.captured_at[:19], .window.app_name, (.browser.url // .zotero.open_link // .anki.browse_query // .window.caption),
          (input_filename | sub("\\.json$"; ".webp"))] | @tsv' "$LR_CAPTURES"/*/*.json

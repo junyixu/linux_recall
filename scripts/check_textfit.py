@@ -1,4 +1,4 @@
-"""Regression check for linux_recall/textfit.py.
+"""Regression check for linux_recall/clicktodo/textfit.py.
 
 Refits every Click to Do page in ~/.cache/linux_recall/clicktodo that has a
 raw OCR result (<id>.ocr.json) and flags lines that look grossly wrong:
@@ -23,7 +23,7 @@ from PIL import Image
 
 from linux_recall.clicktodo import text_lines
 from linux_recall.paths import CACHE_DIR
-from linux_recall.textfit import _split_chars, fit_lines
+from linux_recall.clicktodo.textfit import _split_chars, fit_lines
 
 
 def check(raw: dict, image_path: str) -> tuple[int, int, list[str]]:

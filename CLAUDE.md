@@ -66,8 +66,8 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - `apps/claude.py`：`~/.claude/sessions/<pid>.json`（session id、cwd、状态）+ 会话记录 `~/.claude/projects/*/<session id>.jsonl` 末尾 512 KB 里最新的 `ai-title` 和 `last-prompt`（会话记录可以有几十 MB，不要整个读）
 - `screenshot.py`：调用 spectacle。`window` 模式是 `-a -S`（`-S` 去掉约 250px 的透明阴影），`fullscreen` 是 `-f`；都加 `--new-instance`，否则快捷键和 daemon 同时截图时，第二次调用会被转发给第一个进程，`--output` 丢失。`window_region()` 把窗口的逻辑坐标换算成整桌面截图的像素：spectacle 用最高的缩放比（2）渲染整个桌面，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
 - `ocr.py`：先用 PaddleOCR 云端 API，只上传要识别的区域（`window` 模式是整张图，`fullscreen` 模式是活动窗口那块）。`--ocr-timeout`（默认 60 秒）限制整个云端过程，包括排队重试、每次上传和轮询；超时或出任何错误，就用本地 RapidOCR 识别同一块图
-- `clicktodo.py` + `clicktodo.html`：Click to Do。`spectacle -a -S` 原始分辨率截图 → `ocr.cloud_result(..., word_boxes=True)`（只用云端，失败就报错退出）→ 把截图和 OCR 结果写成一个 HTML 页面 → `firefox --new-window`。页面用 pdf.js 的做法：截图上面叠一层透明文字，**每个字符**是一个绝对定位的 `<span>`，用 `scaleX` 拉伸到正好盖住它的框；每行一个 `<div>`，复制时保留换行。`reading_order()` 先把行分成列再排序，否则跨行选择会把侧边栏一起选进来。测试可以用 `firefox --headless --no-remote --profile <临时目录> --screenshot`，页面里加 `show` class 就能看到文字层
-- `textfit.py`：把百度的文字重新对齐到截图的像素上，每个字符一个框（百度的行框和文字准，词框不准，见下面的坑）。步骤：
+- `clicktodo/`（`__init__.py` + `page.html`）：Click to Do。`spectacle -a -S` 原始分辨率截图 → `ocr.cloud_result(..., word_boxes=True)`（只用云端，失败就报错退出）→ 把截图和 OCR 结果写成一个 HTML 页面 → `firefox --new-window`。页面用 pdf.js 的做法：截图上面叠一层透明文字，**每个字符**是一个绝对定位的 `<span>`，用 `scaleX` 拉伸到正好盖住它的框；每行一个 `<div>`，复制时保留换行。`reading_order()` 先把行分成列再排序，否则跨行选择会把侧边栏一起选进来。测试可以用 `firefox --headless --no-remote --profile <临时目录> --screenshot`，页面里加 `show` class 就能看到文字层
+- `clicktodo/textfit.py`：把百度的文字重新对齐到截图的像素上，每个字符一个框（百度的行框和文字准，词框不准，见下面的坑）。步骤：
   - 墨迹：行框上面去掉 1/8（上一行的下伸部分），下面保留（`_` 在最底下）；阈值按这一行的对比度自适应（灰字和背景只差约 55，黑字差约 250）
   - 去掉图标：墨迹按“比空格宽得多的空白”分块，和任何词的百度范围都不重叠的块是图标
   - 分词：每个空格取离百度给的位置最近的空白（不能取最宽的空白：全角标点“），”自带的留白比空格还宽）

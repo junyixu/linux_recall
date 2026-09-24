@@ -20,11 +20,11 @@ from typing import Any
 from PIL import Image
 
 from linux_recall.capture import notify
+from linux_recall.clicktodo.textfit import fit_lines
 from linux_recall.kwin import get_kwin_state
 from linux_recall.ocr import CLOUD_TIMEOUT, MAX_SIDE, cloud_result
 from linux_recall.paths import CACHE_DIR
 from linux_recall.screenshot import take_screenshot
-from linux_recall.textfit import fit_lines
 
 OUT_DIR = CACHE_DIR / "clicktodo"
 KEEP_SECONDS = 24 * 3600
@@ -75,7 +75,7 @@ def reading_order(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def write_page(path: Path, image: Path, data: dict[str, Any]) -> None:
-    template = files("linux_recall").joinpath("clicktodo.html").read_text()
+    template = files("linux_recall.clicktodo").joinpath("page.html").read_text()
     payload = json.dumps({**data, "image": image.name}, ensure_ascii=False).replace("</", "<\\/")
     path.write_text(template.replace("/*DATA*/null", payload))
 

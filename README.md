@@ -176,7 +176,7 @@ With active use it keeps close to one shot a minute, about 10 MB per active hour
 the screenshot with an invisible text layer on top, built the way pdf.js does it. Every character is an
 absolutely positioned `<span>`, stretched with `scaleX` to cover its box, and lines are ordered column by column,
 so a drag doesn't pull in the sidebar. The cloud's word boxes are often off by several pixels (7 px median, a
-whole word in the worst case), so `textfit.py` re-aligns every character to the actual ink in the screenshot,
+whole word in the worst case), so `clicktodo/textfit.py` re-aligns every character to the actual ink in the screenshot,
 using dynamic programming over glyph gaps.
 
 ## Install

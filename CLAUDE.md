@@ -62,6 +62,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - `apps/anki.py`：AnkiConnect（`localhost:8765`）。主窗口在复习时用 `guiReviewActive` + `guiCurrentCard` + `cardsInfo`（取 note id）；窗口标题以 `Browse` 开头时用 `guiSelectedNotes` + `notesInfo`。字段存成纯文本方便搜索；`browse_query`（`cid:` / `nid:`）给 `lr` 的 `ctrl-o` 用：`guiBrowse` 打开 Browse 窗口，再 `guiSelectCard` 选中。注意 `guiBrowse` 之后选中状态要约 1 秒才生效，立刻调用 `guiSelectedNotes` 会返回空。Browse 窗口已经开着时，Anki 自己的 `activateWindow()` 会被 KWin 的防抢焦点拦下，所以 `lr --open` 之后再用 `kdotool ... windowactivate` 把它提到前面；没有可打开的内容（旧截图 `anki` 为 null 等）时用 `notify-send` 提示
 - `apps/kitty.py`：kitty 远程控制（`kitten @ --to <地址> ls`）。地址从 kitty 子进程的 `/proc/<pid>/environ` 里的 `KITTY_LISTEN_ON` 读（KWin 给的 pid 是 kitty 的）。层级是 kitty → OS window → tab → window（shell，如 zsh）→ `foreground_processes`；前台是 nvim 时，TUI 进程的 `nvim --embed` 子进程才是服务端（它在单独的进程组里，kitty 不会列出来），socket 是 `$XDG_RUNTIME_DIR/nvim.<服务端 pid>.0`，用 `nvim --server … --remote-expr` 一次取回文件、光标、buffer，以及当前 tabpage 每个窗口看得到的原文（`w0`..`w$`，约 10–30 ms）。Lua 代码嵌在 vimscript 的单引号字符串里并合成一行，所以不能有单引号和 `--` 注释；结果用 `vim.json.encode`（非 UTF-8 字节原样透传，Python 端 `errors="replace"`）。插件界面（`buftype` 不是 ''/help/terminal）和 `SECRET_PATTERNS` 匹配的文件不存原文。测试可以用 `uv run python -m linux_recall.apps.kitty <kitty pid>`
 - `apps/nvim.py`：kitty 里的 Neovim 和 Neovide 共用。Neovide 的服务端也是 `nvim --embed` 子进程；`lr` 的 `ctrl-o` 用 `kdotool windowactivate <window.internal_id>` 提起 Neovide 窗口（kdotool 的窗口 id 就是 KWin 的 internal_id）。没有名字的 buffer 直接丢掉
+- `apps/obsidian.py`：Obsidian 1.12+ 的官方 CLI（设置 → 通用 → 命令行界面）。窗口标题是 `笔记 - vault - Obsidian 版本`，vault 名传给 `obsidian vault=<名字> eval code=…`，一次调用（约 0.3 s）取回当前文件、模式、光标、标题、tags 和屏幕上看得到的 Markdown 原文：阅读视图取和面板相交的 `previewMode.renderer.sections`（`start.line`/`end.line`），编辑视图用 CodeMirror 的 `posAtCoords` 取上下边缘的行。KWin 的 `resource_class` 是 `md.obsidian.Obsidian`。`code=` 里不能有 `//` 注释和反斜杠（CLI 会把值里的 `\n` 换成换行），所以换行用 `String.fromCharCode(10)`；JS 出错时 CLI 输出 `Error: …` 但退出码仍是 0。`lr` 的 `ctrl-o` 打开 `obsidian://open?vault=…&file=…`。测试：`uv run python -m linux_recall.apps.obsidian '<窗口标题>'`
 - kitty shell integration：`kitten @ ls` 的 `last_reported_cmdline` / `at_prompt` / `last_cmd_exit_status`；命令还在运行时 `last_cmd_output` 是到目前为止的输出，`last_cmd_exit_status` 是上一条命令的（过时的），所以只在 `at_prompt` 时记录。`ls` 里还有 `env`，不要记录
 - `apps/claude.py`：`~/.claude/sessions/<pid>.json`（session id、cwd、状态）+ 会话记录 `~/.claude/projects/*/<session id>.jsonl` 末尾 512 KB 里最新的 `ai-title` 和 `last-prompt`（会话记录可以有几十 MB，不要整个读）
 - `screenshot.py`：调用 spectacle。`window` 模式是 `-a -S`（`-S` 去掉约 250px 的透明阴影），`fullscreen` 是 `-f`；都加 `--new-instance`，否则快捷键和 daemon 同时截图时，第二次调用会被转发给第一个进程，`--output` 丢失。`window_region()` 把窗口的逻辑坐标换算成整桌面截图的像素：spectacle 用最高的缩放比（2）渲染整个桌面，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
@@ -80,7 +81,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 
 每次截图对应一个 JSON 文件，这是原始记录；以后的 SQLite FTS5 索引要能完全从这些 JSON 重建。
 
-- 顶层字段：`schema_version`（当前是 10）、`id`、`captured_at`（带时区的 ISO 8601）、`trigger`（`hotkey` / `timer` / 测试时自定义）、`screenshot`、`screens`、`window`、`browser`、`ocr`
+- 顶层字段：`schema_version`（当前是 11）、`id`、`captured_at`（带时区的 ISO 8601）、`trigger`（`hotkey` / `timer` / 测试时自定义）、`screenshot`、`screens`、`window`、`browser`、`ocr`
 - `screenshot`：`file`、`mode`、保存的 `width`/`height`、`scale`（保存的图片相对原始截图的缩放比）、`captured_width`/`captured_height`、`window_region`（只有 `fullscreen` 模式有）、`dhash`
 - `ocr`：`{engine, fallback_reason, elapsed_s, region, text, lines: [{text, score, box: 4 个角点}]}`。`box` 和 `region` 都是**保存下来的那张图片**里的像素坐标。`engine` 是实际用的引擎，`fallback_reason` 是为什么改用本地
 - 版本变化：2 加了 `screens`，OCR 只识别活动窗口；3 加了 `window_region`、`dhash`；4 默认只截活动窗口，并且缩小保存。旧的截图是整个桌面、没有缩小，搜索和预览脚本要兼容（比如没有 `ocr.region` 时不裁剪）
@@ -110,5 +111,5 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 3. ✅ 命令行搜索（jq、`lr`）；待做：SQLite FTS5 索引（中文用 jieba 或 simple tokenizer）
 4. ✅ Click to Do 第一版（Firefox 页面、按单词选择、复制）；待做：全屏覆盖层（pywebview）、更快的识别
 5. 省空间：✅ 只存活动窗口、缩小到逻辑分辨率；待做：旧图片只留 N 天（JSON 永久保留）、降低 WebP 质量
-6. 更多应用上下文：✅ Anki（AnkiConnect）、kitty（shell 命令和输出、Neovim、Claude Code）、Neovide；待做：Okular、Dolphin
+6. 更多应用上下文：✅ Anki（AnkiConnect）、Obsidian（CLI）、kitty（shell 命令和输出、Neovim、Claude Code）、Neovide；待做：Okular、Dolphin
 7. 隐私：✅ 排除名单（密码管理器、认证框、隐私窗口、Spectacle、网站域名）；待做：加密存储、一键暂停；补跑 `ocr` 为 `null` 的截图

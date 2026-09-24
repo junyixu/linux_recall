@@ -2,10 +2,10 @@
 
 A Windows Recall–style screen memory for **KDE Plasma 6 on Wayland**.
 Every minute (or on a hotkey) it screenshots the active window and records *what you were looking at*:
-the app, the window title, the browser URL, the paper and page open in Zotero, the Anki card under review,
+the app, the window title, the browser URL, the paper and page open in Zotero, the Anki card under review, the Obsidian note,
 the file open in Neovim (in kitty or Neovide), the last shell command and its output, the Claude Code session,
 and the OCR'd text. Each capture is a small WebP plus a JSON file, searchable from the command line.
-You can jump back to the source with one key: the web page, the PDF page in Zotero, the Anki card, the file and line in Neovim, or the kitty window.
+You can jump back to the source with one key: the web page, the PDF page in Zotero, the Anki card, the Obsidian note, the file and line in Neovim, or the kitty window.
 
 [中文说明](README.zh-CN.md)
 
@@ -26,10 +26,11 @@ https://github.com/user-attachments/assets/99fa2c02-1c16-431c-baca-bb3f1fdb6e25
   - browsers: URL of the active tab
   - Zotero: item, DOI, **current page**, and a `zotero://open-pdf/...?page=N` link
   - Anki: the card under review (or the Browse selection), with field text
+  - Obsidian: vault, note, heading, tags, and the Markdown source lines visible on screen
   - kitty: the focused tab and window, its shell and foreground processes; the last command and its output (shell integration); for Neovim the open file, cursor and visible text; for Claude Code the session id, title and last prompt
   - Neovide: the same Neovim record as in kitty
 - **OCR**: PaddleOCR cloud API (PP-OCRv6, Chinese + English), falling back to local RapidOCR on timeout or error
-- **Search**: `jq` recipes and `lr`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page / Anki card / Neovim file / kitty window
+- **Search**: `jq` recipes and `lr`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page / Anki card / Obsidian note / Neovim file / kitty window
 - **Click to Do**: `Meta+Alt+C` turns the active window into a page where the text in the screenshot is selectable word by word
 
 ## Why this is harder on Wayland
@@ -59,8 +60,9 @@ flowchart LR
     C -->|browser| B["Plasma Browser Integration<br/>tab URL"]
     C -->|Zotero| Z["Zotero Local API<br/>+ reader state → page"]
     C -->|Anki| A["AnkiConnect<br/>current card"]
+    C -->|Obsidian| M["obsidian eval<br/>note + visible lines"]
     C -->|kitty| N["kitten @ ls → shell → nvim<br/>current file + cursor"]
-    B & Z & A & N & C --> D{"daemon only:<br/>same app and dHash ≥ 0.95?"}
+    B & Z & A & M & N & C --> D{"daemon only:<br/>same app and dHash ≥ 0.95?"}
     D -->|yes| X["drop"]
     D -->|no| W["save downscaled WebP + JSON"]
     W --> O["OCR the full-res original<br/>cloud → local fallback"]
@@ -112,6 +114,14 @@ While reviewing, `guiCurrentCard` + `cardsInfo` give the card, note, deck and fi
 `guiSelectedNotes` gives the selection. Fields are stored as plain text, so card content is searchable.
 `ctrl-o` calls `guiBrowse cid:<card>` and `guiSelectCard`, then raises the Browse window with `kdotool`,
 because KWin's focus-stealing prevention blocks Anki from raising an already-open window itself.
+
+### Obsidian: the official CLI
+
+Obsidian 1.12+ ships a CLI that talks to the running app (*Settings → General → Command line interface*).
+The window caption is `Note - Vault - Obsidian 1.x`, so the tool runs `obsidian vault=<Vault> eval code=…` in that
+vault's window: one call (about 0.3 s) returns the active file, view mode, cursor, heading, tags, and the Markdown
+source lines on screen (in reading view, the rendered sections inside the pane; in editing view, CodeMirror's
+`posAtCoords` at the top and bottom edges). `ctrl-o` opens `obsidian://open?vault=…&file=…`.
 
 ### kitty and Neovim: remote control + msgpack-RPC
 
@@ -184,7 +194,7 @@ using dynamic programming over glyph gaps.
 Requirements: KDE Plasma 6 (Wayland), Python ≥ 3.12, [uv](https://docs.astral.sh/uv/), `spectacle`.
 Optional: `plasma-browser-integration` plus its browser extension (URLs); Zotero 7+ with *Settings → Advanced →
 Allow other applications on this computer to communicate with Zotero*; Anki with
-[AnkiConnect](https://ankiweb.net/shared/info/2055492159); `PADDLEOCR_TOKEN` for cloud OCR;
+[AnkiConnect](https://ankiweb.net/shared/info/2055492159); Obsidian 1.12+ with its CLI enabled; `PADDLEOCR_TOKEN` for cloud OCR;
 `jq`, `fzf`, ImageMagick and kitty for search.
 
 ```sh
@@ -242,7 +252,7 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
 
 ```jsonc
 {
-  "schema_version": 10,
+  "schema_version": 11,
   "captured_at": "2026-09-23T20:51:42.366+02:00",
   "trigger": "timer",                                   // or "hotkey"
   "screenshot": {"file": "….webp", "mode": "window", "width": 1969, "height": 1068,
@@ -264,6 +274,9 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
               "claude": {"session_id": "c26e9654-…", "cwd": "…", "status": "busy", "title": "…", "last_prompt": "…",
                          "transcript": "~/.claude/projects/…/c26e9654-….jsonl"}},
   "neovide": {"nvim": {"file": "…", "line": 17, "windows": […]}},   // null unless Neovide
+  "obsidian": {"vault": "Notes", "file": "diary/2026/09/2026-09-23.md", "mode": "preview", "heading": "…",
+               "tags": ["#diary"], "first": 5, "lines": ["line 5 of the note", "…"],
+               "open_link": "obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md"},
   "ocr":     {"engine": "paddleocr-cloud PP-OCRv6", "fallback_reason": null,
               "text": "…", "lines": [{"text": "…", "score": 0.99, "box": [[x, y], …]}]}
 }

@@ -3,9 +3,11 @@
 #   有关键词: 每一行是一处匹配: 程序 时间 │ 匹配所在的那行文字(关键词标红) │ 网站/窗口标题
 #   Neovim(kitty 里或 Neovide)的截图还会搜截图时每个窗口里看得到的 buffer 原文(nvim.windows)，显示成 文件名:行号 文字；
 #   kitty 里的 shell 搜上一条命令和它的输出(kitty.shell)，Claude Code 搜会话标题和最后一次提问(kitty.claude)
+#   Obsidian 搜截图时看得到的笔记原文(obsidian.lines)，显示成 文件名:行号 文字
 #   没有关键词: 每一行是一张截图
 # 右侧预览: 时间/程序/标题/网址 + 截图(在 kitty 里显示图片，匹配的行用红框标出)
 # enter 输出选中截图的 JSON 路径；ctrl-f 输出截图时 Neovim 打开的文件；ctrl-s 打开原截图；ctrl-o 打开当时的内容: 网址(浏览器)、论文那一页(Zotero)、那张卡片(Anki 的 Browse 窗口)、
+#   Obsidian 笔记(obsidian://open)、
 #   Neovim 里的文件和行(匹配 buffer 原文的行跳到匹配的那一行，否则跳到截图时的光标；
 #   那个 nvim 还开着就在它里面打开并切到它的 kitty 窗口，否则新开一个 kitty tab)、
 #   其他 kitty 截图: 那个 kitty 窗口(或 tab)还开着就切过去；都关了而截图时在跑 Claude Code，就新开 tab 运行 claude --resume
@@ -39,6 +41,8 @@ preview() {
         (.browser.url // empty | "\u001b[4;34m\(.)\u001b[0m"),
         (.zotero // empty | "\u001b[35mZotero: \(.title | hl($q)) — \(.creators[:3] | join(", ")) \(.date // "")"
             + (if .page then "  p.\(.page)" else "" end) + (if .doi then "  doi:\(.doi)" else "" end) + "\u001b[0m"),
+        (.obsidian // empty | "\u001b[35mObsidian: \(.vault)/\(.file | hl($q))\u001b[0m"
+            + (if .heading then "  \u001b[2m# \(.heading)\u001b[0m" else "" end)),
         (nvim_file as $file | "\u001b[36mnvim: \($file | hl($q)):\(nvim.line)\u001b[0m"),
         (.kitty.claude // empty | "\u001b[35mClaude: \(.title // .name // "" | hl($q))  \u001b[2m\(.session_id)\u001b[0m",
             (.last_prompt // empty | "\u001b[2m> \u001b[0m\(.[:300] | gsub("\n"; " ") | hl($q))")),
@@ -149,7 +153,7 @@ open_kitty() {
 # ctrl-o: 回到截图时正在看的东西
 open_context() {
     local json=$1 jump=${2:-} target
-    target=$(jq -r '.browser.url // .zotero.open_link // .zotero.select_link // empty' "$json")
+    target=$(jq -r '.browser.url // .zotero.open_link // .zotero.select_link // .obsidian.open_link // empty' "$json")
     if [[ -n $target ]]; then
         xdg-open "$target"
         return
@@ -178,7 +182,7 @@ open_context() {
     fi
     # 旧截图(schema < 5/6)或者当时的程序没有可以打开的东西
     notify-send -a linux_recall -i dialog-information "lr: 没有可以打开的内容" \
-        "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片 / kitty 窗口）"
+        "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / kitty 窗口）"
 }
 
 if [[ ${1:-} == --open ]]; then
@@ -217,8 +221,10 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
     | (.browser.url // "" | capture("^[a-z]+://(?<h>[^/]+)").h // null) as $host
     | (.zotero // null | if . then "\(.title[:40])" + (if .page then " p.\(.page)" else "" end) else null end) as $paper
     | (.anki // null | if .deck then "Anki: \(.deck)" else null end) as $card
+    | (.obsidian // null | if . then "Obsidian: \(.vault)" else null end) as $note
     # 没有关键词时第 2 列已经是窗口标题，第 3 列只放网站
-    | (if $q == "" then $host // $paper // $card // "" else $host // $paper // $card // (.window.caption // "")[:40] end) as $where
+    | (if $q == "" then $host // $paper // $card // $note // ""
+       else $host // $paper // $card // $note // (.window.caption // "")[:40] end) as $where
     | "\u001b[2m\($where)\u001b[0m" as $info
     | if $q == "" then
         [$f, "-1", "", $app, (.window.caption // ""), $info]
@@ -245,7 +251,11 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
           (.anki | (.fields // .notes[0].fields // {}) | to_entries[] | .key as $field
             | .value | split("\n")[] | select(has($q))
             | [$f, "-1", "", $app, "\u001b[2m\($field):\u001b[0m \(hl($q))", $info]),
-          ([.window.caption, .browser.url, .zotero.title, .zotero.doi, nvim.file] as $meta
+          # Obsidian: 看得到的笔记原文(Markdown)，匹配的每一行单独一行，带文件名和行号
+          (.obsidian // empty | select(.lines) | . as $o | .lines | to_entries[] | select(.value | has($q))
+            | [$f, "-1", "", $app,
+               "\u001b[35m\($o.file | split("/") | last):\($o.first + .key)\u001b[0m \(.value | sub("^\\s+"; "") | hl($q))", $info]),
+          ([.window.caption, .browser.url, .zotero.title, .zotero.doi, nvim.file, .obsidian.file] as $meta
             | select($meta | map(. // "") | join("\n") | has($q))
             # the Zotero caption is just "title - author - year", so show title + DOI instead
             | (if .zotero then [.zotero.title, .zotero.doi] else [.window.caption, .browser.url, nvim.file] end
@@ -262,7 +272,7 @@ fi
 printf '%s\n' "$rows" |
     fzf --ansi --tac --tiebreak=index \
         --delimiter '\t' --with-nth 4.. \
-        --header 'enter: 输出 JSON 路径 · ctrl-f: 输出 Neovim 文件路径 · ctrl-s: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片 / Neovim 文件 / kitty 窗口' \
+        --header 'enter: 输出 JSON 路径 · ctrl-f: 输出 Neovim 文件路径 · ctrl-s: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / Neovim 文件 / kitty 窗口' \
         --preview "'$self' --preview {1} {2} {3}" \
         --preview-window 'right,55%,wrap' \
         --bind 'enter:become(echo {1})' \

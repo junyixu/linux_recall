@@ -17,6 +17,7 @@ uv sync
 - `plasma-browser-integration`，并在浏览器里装对应扩展（获取网址）
 - Zotero 7+：在 设置 → 高级 里勾选「允许此计算机上的其他应用程序与 Zotero 通信」（获取正在读的论文和页码）
 - Anki + [AnkiConnect](https://ankiweb.net/shared/info/2055492159) 插件（获取正在复习的卡片）
+- Obsidian 1.12+：在 设置 → 通用 里打开「命令行界面」（获取正在看的笔记和屏幕上的原文）
 - kitty：`kitty.conf` 里设置 `allow_remote_control yes` 和 `listen_on unix:/tmp/kitty`（获取当前 tab 运行的程序、Neovim 打开的文件、Claude Code 的会话）；打开 shell integration（默认开启）才能记录上一条命令和它的输出
 - `PADDLEOCR_TOKEN` 环境变量（云端 OCR；没有或超时时自动改用本地 RapidOCR）
 
@@ -116,6 +117,17 @@ JSON 的主要字段：
     }
   },
   "neovide": {"nvim": {…}},                          // Neovide 窗口，字段和 kitty.nvim 一样；不是 Neovide 时为 null
+  "obsidian": {                                      // 不是 Obsidian 或没有打开笔记（关系图等）时为 null
+    "vault": "Notes", "vault_path": "/home/…/Notes",
+    "file": "diary/2026/09/2026-09-23.md",           // 相对 vault 的路径
+    "view": "markdown",                              // 或 pdf、canvas 等（这时没有下面的字段）
+    "mode": "preview",                               // preview 阅读视图 / source 编辑视图（这时还有光标 line、col）
+    "tabs": ["diary/2026/09/2026-09-23.md"],         // 所有打开的笔记
+    "heading": "💡 杂谈", "tags": ["#diary"], "aliases": [],  // heading 是看得到的第一行所在的标题
+    "first": 5,                                      // lines[i] 是笔记的第 first + i 行
+    "lines": ["…", "…"],                             // 截图时看得到的 Markdown 原文；敏感文件为 null
+    "open_link": "obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md"  // ctrl-o 打开这篇笔记
+  },
   "ocr": {
     "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
     "fallback_reason": null,                         // 为什么改用本地 OCR
@@ -224,6 +236,13 @@ xdg-open 'zotero://open-pdf/library/items/I2R4MPPK?page=48'   # 在 Zotero 里�
 jq -r 'select(.anki.card_id) | [.captured_at[:16], .anki.deck, (.anki.fields | first(.[]) | .[:60])] | @tsv' */*.json
 ```
 
+**看过的 Obsidian 笔记**
+
+```sh
+jq -r 'select(.obsidian) | [.captured_at[:16], .obsidian.vault, .obsidian.file, .obsidian.heading // ""] | @tsv' */*.json
+xdg-open 'obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md'   # 在 Obsidian 里打开
+```
+
 **在 Neovim 里编辑过的文件**
 
 ```sh
@@ -312,7 +331,7 @@ source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
 | 命令 | 作用 |
 |---|---|
 | `lr-search <关键词>` | 就是上面那条 jq 命令，输出 时间 / 程序 / 网址或标题 / 截图路径 |
-| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 + 截图时间（月-日 时:分）│ 所在那行文字，关键词标红 │ 网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车输出选中截图的 JSON 路径（可以接着用 jq 处理），`ctrl-f` 输出截图时 Neovim 打开的文件路径（kitty 前台是 Neovim 的截图，程序名显示为 `kitty(neovim)`；没有文件时不退出），`ctrl-s` 打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）；Neovim 的截图：那个 nvim 还开着，就在它里面打开文件、跳到那一行，并切到它所在的 kitty 窗口，已经关了就新开一个 kitty tab 运行 `nvim +行号 文件`；Neovide 的截图同理（还开着就跳过去并用 `kdotool` 把窗口提到前面，关了就 `neovide -- +行号 文件`）；其他 kitty 截图：切到当时那个 kitty 窗口，窗口关了但 tab 还在就切到那个 tab，都关了时如果截图时在跑 Claude Code，就新开一个 tab 运行 `claude --resume <会话 id>`，否则提示。shell 的命令和输出、Claude Code 的会话标题和最后一次提问也能搜索。Anki 卡片的字段和 Neovim 截图时看得到的 buffer 原文也能搜索，匹配的每一行单独一行显示（Neovim 显示成 `文件名:行号`，`ctrl-o` 跳到这一行，`ctrl-f` 输出这个文件） |
+| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 + 截图时间（月-日 时:分）│ 所在那行文字，关键词标红 │ 网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车输出选中截图的 JSON 路径（可以接着用 jq 处理），`ctrl-f` 输出截图时 Neovim 打开的文件路径（kitty 前台是 Neovim 的截图，程序名显示为 `kitty(neovim)`；没有文件时不退出），`ctrl-s` 打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）；在 Obsidian 里打开那篇笔记（`obsidian://open`）；Neovim 的截图：那个 nvim 还开着，就在它里面打开文件、跳到那一行，并切到它所在的 kitty 窗口，已经关了就新开一个 kitty tab 运行 `nvim +行号 文件`；Neovide 的截图同理（还开着就跳过去并用 `kdotool` 把窗口提到前面，关了就 `neovide -- +行号 文件`）；其他 kitty 截图：切到当时那个 kitty 窗口，窗口关了但 tab 还在就切到那个 tab，都关了时如果截图时在跑 Claude Code，就新开一个 tab 运行 `claude --resume <会话 id>`，否则提示。shell 的命令和输出、Claude Code 的会话标题和最后一次提问也能搜索。Anki 卡片的字段、Neovim 截图时看得到的 buffer 原文和 Obsidian 看得到的笔记原文也能搜索，匹配的每一行单独一行显示（Neovim 和 Obsidian 显示成 `文件名:行号`，`ctrl-o` 跳到这一行，`ctrl-f` 输出这个文件） |
 | `lr-highlight <json> <关键词> [输出.png]` | 在截图上用红框标出匹配的行，并裁剪到 OCR 区域，默认输出 `/tmp/lr-highlight.png` |
 
 ```sh

@@ -97,7 +97,7 @@ def get_kitty_context(window: dict[str, Any]) -> dict[str, Any] | None:
     except (subprocess.SubprocessError, OSError) as e:
         shell = {"error": str(e)}
     return {
-        "address": address,  # remote control socket, for `kitten @ --to` (lr's ctrl-o)
+        "address": address,  # remote control socket, for `kitten @ --to` (lrf's ctrl-o)
         "tab": {"id": tab["id"], "title": tab["title"]},
         "window": {"id": win["id"], "title": win["title"], "cwd": win.get("cwd"),
                    "pid": win.get("pid"), "cmdline": win.get("cmdline")},

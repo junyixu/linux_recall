@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# lr [关键词]: 用 fzf 搜索 linux_recall 的截图。
+# lrf [关键词]: 用 fzf 搜索 linux_recall 的截图。
 #   有关键词: 每一行是一处匹配: 程序 时间 │ 匹配所在的那行文字(关键词标红) │ 网站/窗口标题
 #   Neovim(kitty 里或 Neovide)的截图还会搜截图时每个窗口里看得到的 buffer 原文(nvim.windows)，显示成 文件名:行号 文字；
 #   kitty 里的 shell 搜上一条命令和它的输出(kitty.shell)，Claude Code 搜会话标题和最后一次提问(kitty.claude)
@@ -146,7 +146,7 @@ open_kitty() {
     if [[ -n $sid && -n $kitty ]]; then
         kitten @ --to "$kitty" launch --type=tab --cwd "$cwd" claude --resume "$sid" >/dev/null && return 0
     fi
-    notify-send -a linux_recall -i dialog-information "lr: kitty 窗口已经关了" \
+    notify-send -a linux_recall -i dialog-information "lrf: kitty 窗口已经关了" \
         "$(jq -r '"\(.kitty.tab.title // "")  \(.kitty.window.cwd // "")"' "$json")"
 }
 
@@ -181,7 +181,7 @@ open_context() {
         return
     fi
     # 旧截图(schema < 5/6)或者当时的程序没有可以打开的东西
-    notify-send -a linux_recall -i dialog-information "lr: 没有可以打开的内容" \
+    notify-send -a linux_recall -i dialog-information "lrf: 没有可以打开的内容" \
         "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / kitty 窗口）"
 }
 
@@ -198,7 +198,7 @@ if [[ ${1:-} == --nvim-file ]]; then
     elif jq -e "$JQ_DEFS"'nvim_file' "$2" >/dev/null; then
         echo 'become(jq -r ".kitty.nvim.file // .neovide.nvim.file" {1})'
     else
-        notify-send -a linux_recall -i dialog-information "lr: 没有 Neovim 文件" \
+        notify-send -a linux_recall -i dialog-information "lrf: 没有 Neovim 文件" \
             "截图时不是 Neovim(kitty 前台或 Neovide)、buffer 没有名字，或者是旧截图(schema < 7)"
     fi
     exit 0

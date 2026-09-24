@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/99fa2c02-1c16-431c-baca-bb3f1fdb6e25
   - kitty: the focused tab and window, its shell and foreground processes; the last command and its output (shell integration); for Neovim the open file, cursor and visible text; for Claude Code the session id, title and last prompt
   - Neovide: the same Neovim record as in kitty
 - **OCR**: PaddleOCR cloud API (PP-OCRv6, Chinese + English), falling back to local RapidOCR on timeout or error
-- **Search**: `jq` recipes and `lr`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page / Anki card / Obsidian note / Neovim file / kitty window
+- **Search**: `jq` recipes and `lrf`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page / Anki card / Obsidian note / Neovim file / kitty window
 - **Click to Do**: `Meta+Alt+C` turns the active window into a page where the text in the screenshot is selectable word by word
 
 ## Why this is harder on Wayland
@@ -133,7 +133,7 @@ Neovim is split into a TUI process and an `nvim --embed` server child (in its ow
 doesn't list it); the server listens on `$XDG_RUNTIME_DIR/nvim.<server pid>.0`, and one
 `nvim --server … --remote-expr` call (about 10–30 ms) returns the current file, cursor, mode, cwd, listed buffers,
 and the exact text visible in every window of the current tabpage (lines `w0`..`w$` with their line numbers; plugin
-UIs and secret-looking files such as `.env` or `~/.ssh/*` keep only the path). `lr` searches that text too and shows
+UIs and secret-looking files such as `.env` or `~/.ssh/*` keep only the path). `lrf` searches that text too and shows
 matches as `file:line`, so `ctrl-o` jumps to the matching line rather than wherever the cursor was. OCR still runs,
 for the statusline, other UI and the boxed preview.
 `ctrl-o` goes back to it: if that Neovim is still running, it `:drop`s the file and sets the cursor over the same
@@ -243,7 +243,7 @@ logs and caches in `~/.cache/linux_recall/`.
 ```sh
 source scripts/lr.zsh      # in ~/.zshrc
 
-lr lunar                   # fzf: app + time │ matching line, keyword in red │ site / paper / deck
+lrf lunar                  # fzf: app + time │ matching line, keyword in red │ site / paper / deck
                            #   preview: screenshot with the match boxed (kitty), enter: print the JSON path,
                            #   ctrl-f: print the file open in Neovim (app shows as kitty(neovim)), ctrl-s: open image,
                            #   ctrl-o: reopen the URL / Zotero page / Anki card / Neovim file and line / kitty window

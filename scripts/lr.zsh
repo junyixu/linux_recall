@@ -1,6 +1,6 @@
 # linux_recall 的命令行搜索函数。在 ~/.zshrc 里 source 这个文件：
 #   source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
-# 依赖: jq, fzf, xdg-open, ImageMagick；lr 的图片预览需要 kitty
+# 依赖: jq, fzf, xdg-open, ImageMagick；lrf 的图片预览需要 kitty
 
 LR_CAPTURES=${XDG_DATA_HOME:-$HOME/.local/share}/linux_recall/captures
 LR_SCRIPTS=${${(%):-%x}:A:h}  # directory of this file
@@ -21,8 +21,8 @@ lr-search() {
          (input_filename | sub("\\.json$"; ".webp"))] | @tsv' "$LR_CAPTURES"/*/*.json
 }
 
-# lr [关键词]: fzf 交互式搜索，在 kitty 里直接预览截图，见 scripts/lr
-alias lr="$LR_SCRIPTS/lr"
+# lrf [关键词]: fzf 交互式搜索，在 kitty 里直接预览截图，见 scripts/lrf
+alias lrf="$LR_SCRIPTS/lrf"
 
 # lr-highlight <json> <关键词> [输出.png]: 在截图上用红框标出匹配的 OCR 行，裁剪到 OCR 区域
 lr-highlight() {

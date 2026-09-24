@@ -4,7 +4,7 @@ Neovim is split into a UI (the TUI ``nvim`` process, or Neovide) and an ``nvim -
 server child, in its own process group; the server listens on ``$XDG_RUNTIME_DIR/nvim.<pid>.0``.
 One ``nvim --server … --remote-expr`` call returns the current file and cursor, and the exact
 text visible in each window of the current tabpage (buffer lines ``w0``..``w$`` with their line
-numbers), so captures are searchable without OCR errors and ``lr`` can jump to the matching line.
+numbers), so captures are searchable without OCR errors and ``lrf`` can jump to the matching line.
 """
 
 import glob

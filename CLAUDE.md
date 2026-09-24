@@ -22,7 +22,7 @@ uv run linux-recall-click [--timeout 60]                                 # Click
 uv run python -m linux_recall.kwin            # 打印活动窗口和各显示器信息
 uv run python -m linux_recall.apps.browser    # 打印活动浏览器标签的 URL
 ./scripts/install-hotkey.sh              # 注册 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do），CAPTURE_KEY/CLICK_KEY 可改
-source scripts/lr.zsh                    # lr-search / lr（fzf，kitty 里预览高亮截图）/ lr-highlight
+source scripts/lr.zsh                    # lr-search / lrf（fzf，kitty 里预览高亮截图）/ lr-highlight
 
 systemctl --user restart linux-recall            # 改了 Python 代码后必须重启，daemon 才会用新代码
 journalctl --user -u linux-recall -f -o cat      # daemon 每轮一行 KEEP/SKIP + 相似度
@@ -43,7 +43,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - 缓存（随时可删）：`~/.cache/linux_recall/`
   - `capture.log`：快捷键截图的日志
   - `daemon.jsonl`：daemon 每轮的决定（keep/skip、相似度），用来统计去重效果
-  - `preview/`：`lr` 生成的高亮预览图
+  - `preview/`：`lrf` 生成的高亮预览图
   - 截图过程中的原始分辨率图片、KWin 临时脚本（用完即删）
   - `pending/`：daemon 等待后台 OCR 的原图（`<id>.webp` + `<id>.job.json`），识别完即删，最多 200 张
 - 快捷键 desktop 文件：`~/.local/share/applications/net.local.linux-recall-{capture,click}.desktop`
@@ -60,11 +60,11 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - `similarity.py`：16×16 dHash，相似度 = 1 − 汉明距离 / 256。实测：完全相同 1.0，时钟跳一下 0.988，多一行字 0.977，多一段 0.93，滚动 300px 0.82，内容完全不同 0.5–0.73
 - `kwin.py`：`get_kwin_state()` 返回活动窗口和各显示器的几何信息。用 jeepney 往 `org.kde.KWin /Scripting` 加载一段临时 KWin 脚本，脚本读 `workspace.activeWindow`、`workspace.screens` 后用 `callDBus` 回调到我们的 unique bus name，用完就 unload（和 kdotool 同一个思路，但一次调用拿全所有字段）
 - `apps/browser.py`：Plasma Browser Integration `/TabsRunner`（krunner1 接口）。把窗口标题去掉浏览器后缀，找 `relevance == 1` 且标题完全相同的标签页
-- `apps/zotero.py`：Zotero 阅读器里打开的论文。Local API（`localhost:23119/api/users/0`，只读、无需认证，要在 Zotero 设置里允许其他程序通信）没有“当前选中条目 / 当前标签页”的接口，所以解析窗口标题 `标题 - 作者 - 年份 - Zotero`，用 `qmode=titleCreatorYear` 搜索；页码来自数据目录 `~/.local/share/Zotero/storage/<附件 key>/.zotero-reader-state` 的 `pageIndex`（从 0 开始），PDF 是链接文件时也一样。`lr` 的 `ctrl-o` 用 `zotero://open-pdf/library/items/<附件 key>?page=N` 跳到那一页
-- `apps/anki.py`：AnkiConnect（`localhost:8765`）。主窗口在复习时用 `guiReviewActive` + `guiCurrentCard` + `cardsInfo`（取 note id）；窗口标题以 `Browse` 开头时用 `guiSelectedNotes` + `notesInfo`。字段存成纯文本方便搜索；`browse_query`（`cid:` / `nid:`）给 `lr` 的 `ctrl-o` 用：`guiBrowse` 打开 Browse 窗口，再 `guiSelectCard` 选中。注意 `guiBrowse` 之后选中状态要约 1 秒才生效，立刻调用 `guiSelectedNotes` 会返回空。Browse 窗口已经开着时，Anki 自己的 `activateWindow()` 会被 KWin 的防抢焦点拦下，所以 `lr --open` 之后再用 `kdotool ... windowactivate` 把它提到前面；没有可打开的内容（旧截图 `anki` 为 null 等）时用 `notify-send` 提示
+- `apps/zotero.py`：Zotero 阅读器里打开的论文。Local API（`localhost:23119/api/users/0`，只读、无需认证，要在 Zotero 设置里允许其他程序通信）没有“当前选中条目 / 当前标签页”的接口，所以解析窗口标题 `标题 - 作者 - 年份 - Zotero`，用 `qmode=titleCreatorYear` 搜索；页码来自数据目录 `~/.local/share/Zotero/storage/<附件 key>/.zotero-reader-state` 的 `pageIndex`（从 0 开始），PDF 是链接文件时也一样。`lrf` 的 `ctrl-o` 用 `zotero://open-pdf/library/items/<附件 key>?page=N` 跳到那一页
+- `apps/anki.py`：AnkiConnect（`localhost:8765`）。主窗口在复习时用 `guiReviewActive` + `guiCurrentCard` + `cardsInfo`（取 note id）；窗口标题以 `Browse` 开头时用 `guiSelectedNotes` + `notesInfo`。字段存成纯文本方便搜索；`browse_query`（`cid:` / `nid:`）给 `lrf` 的 `ctrl-o` 用：`guiBrowse` 打开 Browse 窗口，再 `guiSelectCard` 选中。注意 `guiBrowse` 之后选中状态要约 1 秒才生效，立刻调用 `guiSelectedNotes` 会返回空。Browse 窗口已经开着时，Anki 自己的 `activateWindow()` 会被 KWin 的防抢焦点拦下，所以 `lrf --open` 之后再用 `kdotool ... windowactivate` 把它提到前面；没有可打开的内容（旧截图 `anki` 为 null 等）时用 `notify-send` 提示
 - `apps/kitty.py`：kitty 远程控制（`kitten @ --to <地址> ls`）。地址从 kitty 子进程的 `/proc/<pid>/environ` 里的 `KITTY_LISTEN_ON` 读（KWin 给的 pid 是 kitty 的）。层级是 kitty → OS window → tab → window（shell，如 zsh）→ `foreground_processes`；前台是 nvim 时，TUI 进程的 `nvim --embed` 子进程才是服务端（它在单独的进程组里，kitty 不会列出来），socket 是 `$XDG_RUNTIME_DIR/nvim.<服务端 pid>.0`，用 `nvim --server … --remote-expr` 一次取回文件、光标、buffer，以及当前 tabpage 每个窗口看得到的原文（`w0`..`w$`，约 10–30 ms）。Lua 代码嵌在 vimscript 的单引号字符串里并合成一行，所以不能有单引号和 `--` 注释；结果用 `vim.json.encode`（非 UTF-8 字节原样透传，Python 端 `errors="replace"`）。插件界面（`buftype` 不是 ''/help/terminal）和 `SECRET_PATTERNS` 匹配的文件不存原文。测试可以用 `uv run python -m linux_recall.apps.kitty <kitty pid>`
-- `apps/nvim.py`：kitty 里的 Neovim 和 Neovide 共用。Neovide 的服务端也是 `nvim --embed` 子进程；`lr` 的 `ctrl-o` 用 `kdotool windowactivate <window.internal_id>` 提起 Neovide 窗口（kdotool 的窗口 id 就是 KWin 的 internal_id）。没有名字的 buffer 直接丢掉
-- `apps/obsidian.py`：Obsidian 1.12+ 的官方 CLI（设置 → 通用 → 命令行界面）。窗口标题是 `笔记 - vault - Obsidian 版本`，vault 名传给 `obsidian vault=<名字> eval code=…`，一次调用（约 0.3 s）取回当前文件、模式、光标、标题、tags 和屏幕上看得到的 Markdown 原文：阅读视图取和面板相交的 `previewMode.renderer.sections`（`start.line`/`end.line`），编辑视图用 CodeMirror 的 `posAtCoords` 取上下边缘的行。KWin 的 `resource_class` 是 `md.obsidian.Obsidian`。`code=` 里不能有 `//` 注释和反斜杠（CLI 会把值里的 `\n` 换成换行），所以换行用 `String.fromCharCode(10)`；JS 出错时 CLI 输出 `Error: …` 但退出码仍是 0。`lr` 的 `ctrl-o` 打开 `obsidian://open?vault=…&file=…`。测试：`uv run python -m linux_recall.apps.obsidian '<窗口标题>'`
+- `apps/nvim.py`：kitty 里的 Neovim 和 Neovide 共用。Neovide 的服务端也是 `nvim --embed` 子进程；`lrf` 的 `ctrl-o` 用 `kdotool windowactivate <window.internal_id>` 提起 Neovide 窗口（kdotool 的窗口 id 就是 KWin 的 internal_id）。没有名字的 buffer 直接丢掉
+- `apps/obsidian.py`：Obsidian 1.12+ 的官方 CLI（设置 → 通用 → 命令行界面）。窗口标题是 `笔记 - vault - Obsidian 版本`，vault 名传给 `obsidian vault=<名字> eval code=…`，一次调用（约 0.3 s）取回当前文件、模式、光标、标题、tags 和屏幕上看得到的 Markdown 原文：阅读视图取和面板相交的 `previewMode.renderer.sections`（`start.line`/`end.line`），编辑视图用 CodeMirror 的 `posAtCoords` 取上下边缘的行。KWin 的 `resource_class` 是 `md.obsidian.Obsidian`。`code=` 里不能有 `//` 注释和反斜杠（CLI 会把值里的 `\n` 换成换行），所以换行用 `String.fromCharCode(10)`；JS 出错时 CLI 输出 `Error: …` 但退出码仍是 0。`lrf` 的 `ctrl-o` 打开 `obsidian://open?vault=…&file=…`。测试：`uv run python -m linux_recall.apps.obsidian '<窗口标题>'`
 - kitty shell integration：`kitten @ ls` 的 `last_reported_cmdline` / `at_prompt` / `last_cmd_exit_status`；命令还在运行时 `last_cmd_output` 是到目前为止的输出，`last_cmd_exit_status` 是上一条命令的（过时的），所以只在 `at_prompt` 时记录。`ls` 里还有 `env`，不要记录
 - `apps/claude.py`：`~/.claude/sessions/<pid>.json`（session id、cwd、状态）+ 会话记录 `~/.claude/projects/*/<session id>.jsonl` 末尾 512 KB 里最新的 `ai-title` 和 `last-prompt`（会话记录可以有几十 MB，不要整个读）
 - `screenshot.py`：调用 spectacle。`window` 模式是 `-a -S`（`-S` 去掉约 250px 的透明阴影），`fullscreen` 是 `-f`；都加 `--new-instance`，否则快捷键和 daemon 同时截图时，第二次调用会被转发给第一个进程，`--output` 丢失。`window_region()` 把窗口的逻辑坐标换算成整桌面截图的像素：spectacle 用最高的缩放比（2）渲染整个桌面，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
@@ -77,7 +77,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
   - 分字符：词里每段连续墨迹是一个字形，用动态规划 `_align` 分配：一个字符可以占几个字形（中文偏旁），几个字符可以共用一个字形（字母粘连），图标字形可以跳过；代价比较的是相邻字符的间距（百度的绝对位置在行中间会偏一个字符以上，间距却准）。**数量相等也不能直接一一对应**：“机制：Windows”里“制”是两个字形、“ws”粘成一个，数量刚好相等，一一对应会让后面全部错一位
   - 哪一步失败，这一行就保留百度的位置（按 `_advance` 的粗略字宽分给每个字符）
   - 改了这里要跑 `uv run python scripts/check_textfit.py`：用 `~/.cache/linux_recall/clicktodo/` 里保存的百度原始结果（`<id>.ocr.json`）重新对齐，标出可疑的行，再渲染出来看
-- `scripts/lr`：fzf 搜索。每行是一处 OCR 匹配；fzf 调用 `lr --preview` 生成预览（和 `~/.config/kitty/bin/kitty_fzf_tab.sh` 同一个模式），用 `kitten icat --unicode-placeholder` 在 kitty 里显示高亮后的截图
+- `scripts/lrf`：fzf 搜索。每行是一处 OCR 匹配；fzf 调用 `lrf --preview` 生成预览（和 `~/.config/kitty/bin/kitty_fzf_tab.sh` 同一个模式），用 `kitten icat --unicode-placeholder` 在 kitty 里显示高亮后的截图
 
 ## 数据格式
 
@@ -110,7 +110,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 
 1. ✅ 快捷键截图：活动窗口 + 窗口信息 + 浏览器 URL + OCR → JSON
 2. ✅ 定时截图 + dHash 去重（daemon），后台 OCR 队列 + 熔断；待做：按活动窗口切换 / idle（`ext-idle-notify-v1`）触发，而不是只靠定时
-3. ✅ 命令行搜索（jq、`lr`）；待做：SQLite FTS5 索引（中文用 jieba 或 simple tokenizer）
+3. ✅ 命令行搜索（jq、`lrf`）；待做：SQLite FTS5 索引（中文用 jieba 或 simple tokenizer）
 4. ✅ Click to Do 第一版（Firefox 页面、按单词选择、复制）；待做：全屏覆盖层（pywebview）、更快的识别
 5. 省空间：✅ 只存活动窗口、缩小到逻辑分辨率；待做：旧图片只留 N 天（JSON 永久保留）、降低 WebP 质量
 6. 更多应用上下文：✅ Anki（AnkiConnect）、Obsidian（CLI）、kitty（shell 命令和输出、Neovim、Claude Code）、Neovide；待做：Okular、Dolphin

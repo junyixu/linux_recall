@@ -312,7 +312,8 @@ Unset `PADDLEOCR_TOKEN` in `environment.d` to keep OCR local.
 
 A personal tool, built and tested on Arch Linux + Plasma 6.7 with three mixed-DPI monitors.
 Next up: SQLite FTS5 index, event-driven triggers (window switch, `ext-idle-notify-v1`), expiring old images while
-keeping the JSON, and encryption.
+keeping the JSON, and encryption. Making the JSON more compact is low priority: the data directory sits on btrfs
+with transparent compression, so the verbose text already takes little space on disk.
 
 ## Similar projects
 

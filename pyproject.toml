@@ -18,6 +18,7 @@ dependencies = [
 linux-recall-capture = "linux_recall.capture:main"
 linux-recall-daemon = "linux_recall.daemon:main"
 linux-recall-click = "linux_recall.clicktodo:main"
+linux-recall-usage = "linux_recall.usage:main"
 
 [build-system]
 requires = ["hatchling"]

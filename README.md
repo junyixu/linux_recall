@@ -255,6 +255,17 @@ KEEP  firefox      similarity 0.612 (threshold 0.95)  app kitty -> firefox  [kep
 
 With active use it keeps close to one shot a minute, about 10 MB per active hour.
 
+Because skipped cycles are logged too, `linux-recall-usage` can tell how long each app was in front: every cycle
+counts until the next one (capped at twice the interval, so suspend doesn't count), locked time is shown apart.
+
+```
+kitty                   6h05m   50.0%  ██████████████████████████████
+firefox                 2h52m   23.6%  ██████████████▏
+org.telegram.desktop    1h26m   11.8%  ███████
+total                  12h10m
+locked                  9h55m
+```
+
 ### Click to Do: selectable text over a screenshot
 
 `Meta+Alt+C` screenshots the active window, OCRs it with per-word boxes, and opens an HTML page in Firefox:
@@ -271,6 +282,7 @@ uv run linux-recall-capture                     # one capture (what the hotkey r
 uv run linux-recall-capture --mode fullscreen   # whole desktop; OCR still only the active window
 uv run linux-recall-capture --full-res          # keep HiDPI resolution
 journalctl --user -u linux-recall -f -o cat     # watch the daemon's keep/skip decisions
+uv run linux-recall-usage --today              # time per app, from the daemon's log (--by detail: site / kitty program)
 ```
 
 Captures live in `~/.local/share/linux_recall/captures/YYYY-MM-DD/<id>.{webp,json}`;

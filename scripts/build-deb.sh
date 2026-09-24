@@ -27,7 +27,7 @@ rm -rf "$prefix"/python/*/lib/python3.*/{test,idlelib,tkinter,turtledemo}
 
 mkdir -p "$stage/DEBIAN" "$stage/usr/bin" "$stage/usr/lib"
 cp -a "$prefix" "$stage/usr/lib/"
-for cmd in linux-recall-capture linux-recall-daemon linux-recall-click; do
+for cmd in linux-recall-capture linux-recall-daemon linux-recall-click linux-recall-usage; do
     ln -s "$prefix/venv/bin/$cmd" "$stage/usr/bin/$cmd"
 done
 install -Dm644 "$repo/systemd/linux-recall.service" "$stage/usr/lib/systemd/user/linux-recall.service"

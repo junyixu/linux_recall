@@ -19,6 +19,7 @@ uv run linux-recall-capture [--mode window|fullscreen|monitor] [--full-res] [--n
     [--ocr-timeout 60] [--no-notify] [--trigger test] [--data-dir DIR]   # 截一次（快捷键跑的就是它）
 uv run linux-recall-daemon --interval 60 --threshold 0.95 [-v]           # 定时截图 + 去重
 uv run linux-recall-click [--timeout 60]                                 # Click to Do（快捷键 Meta+Alt+C）
+uv run linux-recall-usage [--today] [--daily] [--by detail] [--json]     # 从 daemon.jsonl 统计各程序用了多长时间
 uv run python -m linux_recall.kwin            # 打印活动窗口和各显示器信息
 uv run python -m linux_recall.apps.browser    # 打印活动浏览器标签的 URL
 ./scripts/install-hotkey.sh              # 注册 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do），CAPTURE_KEY/CLICK_KEY 可改
@@ -57,6 +58,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
   - `take()`：活动窗口（约 50 ms）→ 浏览器 URL → 检查排除名单 → 截图到缓存目录（`window` 模式约 0.5 s）→ 其他应用上下文 → 计算 dHash 和屏幕缩放比
   - `save()`：把截图按屏幕缩放比缩小到逻辑分辨率后存进数据目录（`--full-res` 不缩小），写 JSON；然后用**原始分辨率**的图做 OCR，把坐标换算到保存的图片上，再写一次 JSON（`add_ocr()`，后台队列也用它）。原图由调用方处理：快捷键的 `capture()` 删掉，daemon 移进 `pending/`。缩小后再 OCR，kitty 窗口会从 105 行掉到 42 行，所以一定要先用原图识别
 - `daemon.py`：每 `--interval` 秒 `take()` 一次；如果和上一次保存的是同一个程序，而且 dHash 相似度 ≥ `--threshold`，就丢弃，否则 `save(ocr=False)` 后把原图交给 `ocr_queue`。换了程序一定保存；锁屏时跳过（`org.freedesktop.ScreenSaver.GetActive`）。每轮写一行日志，并往 `daemon.jsonl` 追加一条记录，再告诉队列用户是否空闲（锁屏，或连续 3 轮 `similar` 且 PSI `/proc/pressure/cpu` avg60 < 10）。收到 SIGTERM 会先跑完当前这一轮
+- `usage.py`：读 `daemon.jsonl`，每一轮算到下一轮为止（最多 2 倍间隔中位数），按 `app` 累加；`locked` 单独列、`excluded` 合成一类（这时 `app` 是排除原因）。`--by detail` 读 keep 那轮的截图 JSON 取浏览器域名 / kitty 前台程序，`similar` 的轮次沿用同一程序上一张
 - `ocr_queue.py`：daemon 的后台 OCR 线程。只用云端（`--ocr-timeout` 默认 180 秒），从最新的一张开始；失败就熔断（暂停 1 分钟，每次翻倍，最多 30 分钟；缺 token / 401 / 403 直接 30 分钟并 `notify-send` 一次），NetworkManager `Connectivity` 不是 4 时不试。云端不可用时，排队超过 1 小时的截图在空闲且接电源（`/sys/class/power_supply` 的 Mains）时用本地 OCR（2 线程）。线程是 daemon 线程，停止时直接丢下，没做完的留在 `pending/`，下次启动接着做
 - `exclude.py`：排除名单。`take()` 拿到 KWin 状态后、调用 spectacle 之前检查活动窗口（`APPS` 按 `desktop_file`，`CAPTIONS` 按标题子串，`SITES` 按活动标签 URL 的域名，含子域名；标题有歧义时任何一个候选标签命中都算；拿不到 URL 就不排除），命中就抛 `capture.Excluded`；daemon 记为 `skip` / `reason="excluded"`，快捷键弹通知 “Not captured” 后正常退出。Spectacle 自己也在名单里（框选界面是整个桌面的静止画面）
 - `similarity.py`：16×16 dHash，相似度 = 1 − 汉明距离 / 256。实测：完全相同 1.0，时钟跳一下 0.988，多一行字 0.977，多一段 0.93，滚动 300px 0.82，内容完全不同 0.5–0.73

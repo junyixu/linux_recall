@@ -247,6 +247,26 @@ jq -s -c 'map(select(.reason == "similar" or .reason == "changed")) | group_by(.
                  skipped: map(select(.decision == "skip")) | length})' daemon.jsonl
 ```
 
+**各程序用了多长时间**：`daemon.jsonl` 连跳过的轮次也记下了当时的程序，所以可以统计每个程序在前台的时间（不能数截图，画面不动的程序截图会被去重掉）。每一轮算到下一轮为止，最多算两个间隔（`--max-gap`，休眠、关机的时间不算）；锁屏的时间单独列出：
+
+```sh
+linux-recall-usage                      # 全部记录（源码运行加 uv run）
+linux-recall-usage --today              # 今天
+linux-recall-usage --since 2026-09-20 --daily   # 每天一张表
+linux-recall-usage --by detail          # 浏览器按网站、kitty 按前台程序（claude、nvim……）细分
+linux-recall-usage --json | jq '.all | to_entries | sort_by(-.value)[:5]'   # 秒数
+```
+
+```
+kitty                   6h05m   50.0%  ██████████████████████████████
+firefox                 2h52m   23.6%  ██████████████▏
+org.telegram.desktop    1h26m   11.8%  ███████
+total                  12h10m
+locked                  9h55m
+```
+
+`--by detail` 要读截图的 JSON，截图删掉了的那几轮就只按程序算。只算活动窗口在前台的时间，没锁屏但人走开了也照样算。
+
 想多保存一些，就调低 service 里的 `--threshold`；想少保存一些就调高，然后 `systemctl --user daemon-reload && systemctl --user restart linux-recall`。
 
 ## 用 jq 查看

@@ -20,7 +20,6 @@ from typing import Any
 from PIL import Image
 
 from linux_recall.capture import notify
-from linux_recall.clicktodo.textfit import fit_lines
 from linux_recall.kwin import get_kwin_state
 from linux_recall.ocr import CLOUD_TIMEOUT, MAX_SIDE, cloud_result
 from linux_recall.paths import CACHE_DIR
@@ -88,6 +87,10 @@ def prune_old() -> None:
 
 
 def click_to_do(timeout: float) -> Path:
+    try:  # numpy is optional in the AUR package; fail before taking the screenshot
+        from linux_recall.clicktodo.textfit import fit_lines
+    except ImportError as e:
+        raise RuntimeError(f"Click to Do 需要 python-numpy（{e}）") from e
     now = datetime.now().astimezone()
     shot_id = f"{now:%Y%m%d-%H%M%S}-{now.microsecond // 1000:03d}"
     OUT_DIR.mkdir(parents=True, exist_ok=True)

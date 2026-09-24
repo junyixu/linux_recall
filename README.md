@@ -275,15 +275,16 @@ Everything is stored **unencrypted** on your disk, and cloud OCR uploads the win
 A small exclusion list (`linux_recall/exclude.py`) is checked right after the KWin query, before Spectacle runs, so
 nothing of those windows is ever written: password managers (KeePassXC, Bitwarden, 1Password, KWallet), auth prompts
 (polkit, ksshaskpass, pinentry), Spectacle's own region-select overlay (a frozen image of the whole desktop), and
-windows whose caption contains `Private Browsing`, `(Incognito)`, `(Private)` or `[InPrivate]`. Only the active window
-is checked, and there's no URL-based list (banking sites) yet, so review what you record.
+windows whose caption contains `Private Browsing`, `(Incognito)`, `(Private)` or `[InPrivate]`, and browser tabs on listed
+domains (`SITES`, e.g. a bank; the URL lookup moved ahead of the screenshot for this). Only the active window is
+checked, and a site is only caught when Plasma Browser Integration reports the URL, so review what you record.
 Unset `PADDLEOCR_TOKEN` in `environment.d` to keep OCR local.
 
 ## Status
 
 A personal tool, built and tested on Arch Linux + Plasma 6.7 with three mixed-DPI monitors.
 Next up: SQLite FTS5 index, event-driven triggers (window switch, `ext-idle-notify-v1`), expiring old images while
-keeping the JSON, URL-based exclusions, and encryption.
+keeping the JSON, and encryption.
 
 ## Similar projects
 

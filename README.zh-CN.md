@@ -331,5 +331,6 @@ lr-highlight 2026-09-23/20260923-205142-366.json lunar && xdg-open /tmp/lr-highl
 
 - `APPS`（按 `desktop_file` 匹配）：KeePassXC、Bitwarden、1Password、KWallet、Seahorse、polkit 认证框、ksshaskpass、pinentry-qt，以及 Spectacle 本身（它的框选界面是整个桌面的静止画面）
 - `CAPTIONS`（窗口标题包含）：`Private Browsing`（Firefox 隐私窗口）、`(Incognito)`、`(Private)`、`[InPrivate]`
+- `SITES`（活动标签页网址的域名，包括子域名）：`boc.cn`（中国银行）。网址来自 Plasma Browser Integration，所以浏览器扩展没连上时拿不到网址，也就不会排除
 
-要加别的程序，把它的 `desktop_file` 加进 `APPS`（用 `uv run python -m linux_recall.kwin` 查），改完 `systemctl --user restart linux-recall`。只检查活动窗口：`--mode fullscreen` 截的整个桌面里仍然可能有别的窗口；银行网站这类按网址排除的还没做。不想上传到云端时，就不要设置 `PADDLEOCR_TOKEN`，这样只用本地 OCR。注意快捷键启动的程序从 `~/.config/environment.d/` 读取这个变量，只在终端里 `unset` 对快捷键无效；单次命令行运行可以用 `env -u PADDLEOCR_TOKEN uv run linux-recall-capture`。
+要加别的程序，把它的 `desktop_file` 加进 `APPS`（用 `uv run python -m linux_recall.kwin` 查），改完 `systemctl --user restart linux-recall`。只检查活动窗口：`--mode fullscreen` 截的整个桌面里仍然可能有别的窗口；加网站就把域名加进 `SITES`。不想上传到云端时，就不要设置 `PADDLEOCR_TOKEN`，这样只用本地 OCR。注意快捷键启动的程序从 `~/.config/environment.d/` 读取这个变量，只在终端里 `unset` 对快捷键无效；单次命令行运行可以用 `env -u PADDLEOCR_TOKEN uv run linux-recall-capture`。

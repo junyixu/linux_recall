@@ -104,7 +104,14 @@ def take(mode: str = "window") -> Shot:
         log.exception("KWin query failed")
         state = {"window": None, "screens": None}
     window = state["window"]
-    if reason := excluded(window):
+    # the URL before the screenshot too, so excluded sites are never captured
+    browser = None
+    if window and is_browser(window):
+        try:
+            browser = get_active_tab(window)
+        except Exception:
+            log.exception("browser tab query failed")
+    if reason := excluded(window, browser):
         raise Excluded(reason)
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -113,12 +120,6 @@ def take(mode: str = "window") -> Shot:
     take_screenshot(image, mode)
     log.debug("screenshot in %.2fs", time.perf_counter() - t)
 
-    browser = None
-    if window and is_browser(window):
-        try:
-            browser = get_active_tab(window)
-        except Exception:
-            log.exception("browser tab query failed")
     zotero = None
     if window and is_zotero(window):
         try:

@@ -29,6 +29,7 @@ from jeepney.io.blocking import open_dbus_connection
 
 from linux_recall.apps.anki import get_anki_context, is_anki
 from linux_recall.apps.browser import get_active_tab, is_browser
+from linux_recall.apps.inkycap import get_open_note as get_inkycap_note, is_inkycap
 from linux_recall.apps.kitty import get_kitty_context, is_kitty
 from linux_recall.apps.nvim import get_neovide_context, is_neovide
 from linux_recall.apps.obsidian import get_open_note, is_obsidian
@@ -40,7 +41,7 @@ from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 from linux_recall.similarity import dhash
 
-SCHEMA_VERSION = 11  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
+SCHEMA_VERSION = 12  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
                     # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels;
                     # 5: + "zotero" (item/page open in Zotero's reader); 6: + "anki" (card under review)
                     # 7: + "kitty" (focused tab/window, foreground processes, Neovim file)
@@ -48,6 +49,7 @@ SCHEMA_VERSION = 11  # 2: + "screens", OCR only the active window; 3: + screensh
                     # 9: + "neovide" ({"nvim": ...}, same fields as kitty.nvim)
                     # 10: + kitty.shell (last command + output), kitty.claude (Claude Code session)
                     # 11: + "obsidian" (active note, visible source lines)
+                    # 12: + "inkycap" (last active note, #note() properties)
 
 log = logging.getLogger("linux_recall")
 
@@ -87,6 +89,7 @@ class Shot:
     kitty: dict[str, Any] | None
     neovide: dict[str, Any] | None
     obsidian: dict[str, Any] | None
+    inkycap: dict[str, Any] | None
     region: tuple[int, int, int, int] | None  # active window in screenshot pixels
     dhash: str  # of the active window region, or of the whole image
     device_scale: float  # screenshot pixels per logical pixel (the output scale, e.g. 2)
@@ -154,6 +157,12 @@ def take(mode: str = "window") -> Shot:
             obsidian = get_open_note(window)
         except Exception:
             log.exception("Obsidian CLI query failed")
+    inkycap = None
+    if window and is_inkycap(window):
+        try:
+            inkycap = get_inkycap_note()
+        except Exception:
+            log.exception("InkyCap state read failed")
 
     with Image.open(image) as im:
         size = im.size
@@ -162,7 +171,7 @@ def take(mode: str = "window") -> Shot:
             region = window_region(window, state["screens"], size)
         digest = dhash(im.crop(region) if region else im)
     return Shot(now, shot_id, image, mode, size, state, browser, zotero, anki, kitty, neovide, obsidian,
-                region, digest,
+                inkycap, region, digest,
                 _device_scale(mode, size, state))
 
 
@@ -227,6 +236,7 @@ def save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: float
         "kitty": shot.kitty,
         "neovide": shot.neovide,
         "obsidian": shot.obsidian,
+        "inkycap": shot.inkycap,
         "ocr": None,
     }
     write_json(json_path, record)
@@ -310,10 +320,12 @@ def main() -> None:
         nvim = (kitty or record["neovide"] or {}).get("nvim") or {}
         claude, shell = kitty.get("claude") or {}, kitty.get("shell") or {}
         obsidian = record["obsidian"] or {}
+        inkycap = record.get("inkycap") or {}
         notify("Captured", browser.get("url") or (zotero.get("title") and zotero["title"] + page)
                or (anki.get("deck") and f"Anki: {anki['deck']}")
                or (nvim.get("file") and f"nvim: {nvim['file']}:{nvim['line']}")
                or (obsidian.get("file") and f"Obsidian: {obsidian['file']}")
+               or (inkycap.get("file") and f"InkyCap: {inkycap['file']}")
                or (claude.get("title") and f"Claude: {claude['title']}")
                or (shell.get("cmdline") and f"$ {shell['cmdline']}")
                or window.get("app_name") or json_path.stem)

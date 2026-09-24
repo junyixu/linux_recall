@@ -144,6 +144,14 @@ JSON 的主要字段：
     "lines": ["…", "…"],                             // 截图时看得到的 Markdown 原文；敏感文件为 null
     "open_link": "obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md"  // ctrl-o 打开这篇笔记
   },
+  "inkycap": {                                       // 不是 InkyCap 或还没打开过笔记时为 null
+    "notebox": "notes", "notebox_path": "/home/…/notes",
+    "file": "reading/attention.typ",                 // 相对 notebox 的路径
+    "path": "/home/…/notes/reading/attention.typ",   // 绝对路径，lrf 的 ctrl-t 输出它
+    "since": "2026-09-24T15:48:31+02:00",            // InkyCap 切到这篇笔记的时间（local.json 的修改时间）
+    "ambiguous": false,                              // 有多个 notebox 时为 true：取最近切换过笔记的那个
+    "title": "…", "date": "2026-09-24", "zid": 20260924152701, "tags": ["ml"], "aliases": []  // 笔记开头 #note(...) 里的属性
+  },
   "ocr": {
     "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
     "fallback_reason": null,                         // 为什么改用本地 OCR
@@ -272,6 +280,12 @@ jq -r 'select(.obsidian) | [.captured_at[:16], .obsidian.vault, .obsidian.file, 
 xdg-open 'obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md'   # 在 Obsidian 里打开
 ```
 
+**看过的 InkyCap 笔记**
+
+```sh
+jq -r 'select(.inkycap) | [.captured_at[:16], .inkycap.notebox, .inkycap.file, .inkycap.title // ""] | @tsv' */*.json
+```
+
 **在 Neovim 里编辑过的文件**
 
 ```sh
@@ -360,7 +374,7 @@ source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
 | 命令 | 作用 |
 |---|---|
 | `lr-search <关键词>` | 就是上面那条 jq 命令，输出 时间 / 程序 / 网址或标题 / 截图路径 |
-| `lrf [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 + 截图时间（月-日 时:分）│ 所在那行文字，关键词标红 │ 网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车输出选中截图的 JSON 路径（可以接着用 jq 处理），`ctrl-f` 输出截图时 Neovim 打开的文件路径（kitty 前台是 Neovim 的截图，程序名显示为 `kitty(neovim)`；没有文件时不退出），`ctrl-s` 打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）；在 Obsidian 里打开那篇笔记（`obsidian://open`）；Neovim 的截图：那个 nvim 还开着，就在它里面打开文件、跳到那一行，并切到它所在的 kitty 窗口，已经关了就新开一个 kitty tab 运行 `nvim +行号 文件`；Neovide 的截图同理（还开着就跳过去并用 `kdotool` 把窗口提到前面，关了就 `neovide -- +行号 文件`）；其他 kitty 截图：切到当时那个 kitty 窗口，窗口关了但 tab 还在就切到那个 tab，都关了时如果截图时在跑 Claude Code，就新开一个 tab 运行 `claude --resume <会话 id>`，否则提示。shell 的命令和输出、Claude Code 的会话标题和最后一次提问也能搜索。Anki 卡片的字段、Neovim 截图时看得到的 buffer 原文和 Obsidian 看得到的笔记原文也能搜索，匹配的每一行单独一行显示（Neovim 和 Obsidian 显示成 `文件名:行号`，`ctrl-o` 跳到这一行，`ctrl-f` 输出这个文件） |
+| `lrf [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 + 截图时间（月-日 时:分）│ 所在那行文字，关键词标红 │ 网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车输出选中截图的 JSON 路径（可以接着用 jq 处理），`ctrl-f` 输出截图时 Neovim 打开的文件路径（kitty 前台是 Neovim 的截图，程序名显示为 `kitty(neovim)`；没有文件时不退出），`ctrl-t` 输出截图时 InkyCap 打开的笔记的绝对路径（没有时不退出），`ctrl-s` 打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）；在 Obsidian 里打开那篇笔记（`obsidian://open`）；Neovim 的截图：那个 nvim 还开着，就在它里面打开文件、跳到那一行，并切到它所在的 kitty 窗口，已经关了就新开一个 kitty tab 运行 `nvim +行号 文件`；Neovide 的截图同理（还开着就跳过去并用 `kdotool` 把窗口提到前面，关了就 `neovide -- +行号 文件`）；其他 kitty 截图：切到当时那个 kitty 窗口，窗口关了但 tab 还在就切到那个 tab，都关了时如果截图时在跑 Claude Code，就新开一个 tab 运行 `claude --resume <会话 id>`，否则提示。shell 的命令和输出、Claude Code 的会话标题和最后一次提问也能搜索。Anki 卡片的字段、Neovim 截图时看得到的 buffer 原文和 Obsidian 看得到的笔记原文也能搜索，匹配的每一行单独一行显示（Neovim 和 Obsidian 显示成 `文件名:行号`，`ctrl-o` 跳到这一行，`ctrl-f` 输出这个文件） |
 | `lr-highlight <json> <关键词> [输出.png]` | 在截图上用红框标出匹配的行，并裁剪到 OCR 区域，默认输出 `/tmp/lr-highlight.png` |
 
 ```sh

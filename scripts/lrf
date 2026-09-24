@@ -6,7 +6,7 @@
 #   Obsidian 搜截图时看得到的笔记原文(obsidian.lines)，显示成 文件名:行号 文字
 #   没有关键词: 每一行是一张截图
 # 右侧预览: 时间/程序/标题/网址 + 截图(在 kitty 里显示图片，匹配的行用红框标出)
-# enter 输出选中截图的 JSON 路径；ctrl-f 输出截图时 Neovim 打开的文件；ctrl-s 打开原截图；ctrl-o 打开当时的内容: 网址(浏览器)、论文那一页(Zotero)、那张卡片(Anki 的 Browse 窗口)、
+# enter 输出选中截图的 JSON 路径；ctrl-f 输出截图时 Neovim 打开的文件；ctrl-t 输出截图时 InkyCap 打开的笔记；ctrl-s 打开原截图；ctrl-o 打开当时的内容: 网址(浏览器)、论文那一页(Zotero)、那张卡片(Anki 的 Browse 窗口)、
 #   Obsidian 笔记(obsidian://open)、
 #   Neovim 里的文件和行(匹配 buffer 原文的行跳到匹配的那一行，否则跳到截图时的光标；
 #   那个 nvim 还开着就在它里面打开并切到它的 kitty 窗口，否则新开一个 kitty tab)、
@@ -43,6 +43,8 @@ preview() {
             + (if .page then "  p.\(.page)" else "" end) + (if .doi then "  doi:\(.doi)" else "" end) + "\u001b[0m"),
         (.obsidian // empty | "\u001b[35mObsidian: \(.vault)/\(.file | hl($q))\u001b[0m"
             + (if .heading then "  \u001b[2m# \(.heading)\u001b[0m" else "" end)),
+        (.inkycap // empty | "\u001b[35mInkyCap: \(.notebox)/\(.file | hl($q))\u001b[0m"
+            + (if .title then "  \u001b[2m\(.title | hl($q))\u001b[0m" else "" end)),
         (nvim_file as $file | "\u001b[36mnvim: \($file | hl($q)):\(nvim.line)\u001b[0m"),
         (.kitty.claude // empty | "\u001b[35mClaude: \(.title // .name // "" | hl($q))  \u001b[2m\(.session_id)\u001b[0m",
             (.last_prompt // empty | "\u001b[2m> \u001b[0m\(.[:300] | gsub("\n"; " ") | hl($q))")),
@@ -204,6 +206,17 @@ if [[ ${1:-} == --nvim-file ]]; then
     exit 0
 fi
 
+# ctrl-t: 有 InkyCap 笔记时输出它的绝对路径并退出，没有就提示并留在 fzf 里
+if [[ ${1:-} == --inkycap-file ]]; then
+    if jq -e '.inkycap.path // empty' "$2" >/dev/null; then
+        echo 'become(jq -r .inkycap.path {1})'
+    else
+        notify-send -a linux_recall -i dialog-information "lrf: 没有 InkyCap 笔记" \
+            "截图时不是 InkyCap、还没打开过笔记，或者是旧截图(schema < 12)"
+    fi
+    exit 0
+fi
+
 if [[ ${1:-} == --preview ]]; then
     preview "$2" "$3" "${4:-}"
     exit 0
@@ -221,7 +234,8 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
     | (.browser.url // "" | capture("^[a-z]+://(?<h>[^/]+)").h // null) as $host
     | (.zotero // null | if . then "\(.title[:40])" + (if .page then " p.\(.page)" else "" end) else null end) as $paper
     | (.anki // null | if .deck then "Anki: \(.deck)" else null end) as $card
-    | (.obsidian // null | if . then "Obsidian: \(.vault)" else null end) as $note
+    | (if .obsidian then "Obsidian: \(.obsidian.vault)" elif .inkycap then "InkyCap: \(.inkycap.notebox)"
+       else null end) as $note
     # 没有关键词时第 2 列已经是窗口标题，第 3 列只放网站
     | (if $q == "" then $host // $paper // $card // $note // ""
        else $host // $paper // $card // $note // (.window.caption // "")[:40] end) as $where
@@ -255,10 +269,11 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
           (.obsidian // empty | select(.lines) | . as $o | .lines | to_entries[] | select(.value | has($q))
             | [$f, "-1", "", $app,
                "\u001b[35m\($o.file | split("/") | last):\($o.first + .key)\u001b[0m \(.value | sub("^\\s+"; "") | hl($q))", $info]),
-          ([.window.caption, .browser.url, .zotero.title, .zotero.doi, nvim.file, .obsidian.file] as $meta
+          ([.window.caption, .browser.url, .zotero.title, .zotero.doi, nvim.file, .obsidian.file,
+            .inkycap.file, .inkycap.title] as $meta
             | select($meta | map(. // "") | join("\n") | has($q))
             # the Zotero caption is just "title - author - year", so show title + DOI instead
-            | (if .zotero then [.zotero.title, .zotero.doi] else [.window.caption, .browser.url, nvim.file] end
+            | (if .zotero then [.zotero.title, .zotero.doi] else [.window.caption, .browser.url, nvim.file, .inkycap.file] end
                | map(select(. != null) | hl($q)) | join("  ")) as $text
             | [$f, "-1", "", $app, $text, $info]) )
       end
@@ -272,10 +287,11 @@ fi
 printf '%s\n' "$rows" |
     fzf --ansi --tac --tiebreak=index \
         --delimiter '\t' --with-nth 4.. \
-        --header 'enter: 输出 JSON 路径 · ctrl-f: 输出 Neovim 文件路径 · ctrl-s: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / Neovim 文件 / kitty 窗口' \
+        --header 'enter: 输出 JSON 路径 · ctrl-f: 输出 Neovim 文件路径 · ctrl-t: 输出 InkyCap 笔记路径 · ctrl-s: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / Neovim 文件 / kitty 窗口' \
         --preview "'$self' --preview {1} {2} {3}" \
         --preview-window 'right,55%,wrap' \
         --bind 'enter:become(echo {1})' \
         --bind "ctrl-f:transform('$self' --nvim-file {1} {3})" \
+        --bind "ctrl-t:transform('$self' --inkycap-file {1})" \
         --bind 'ctrl-s:execute-silent(f={1}; xdg-open "${f%.json}.webp")' \
         --bind "ctrl-o:execute-silent('$self' --open {1} {3})"

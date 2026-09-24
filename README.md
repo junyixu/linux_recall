@@ -27,6 +27,7 @@ https://github.com/user-attachments/assets/99fa2c02-1c16-431c-baca-bb3f1fdb6e25
   - Zotero: item, DOI, **current page**, and a `zotero://open-pdf/...?page=N` link
   - Anki: the card under review (or the Browse selection), with field text
   - Obsidian: vault, note, heading, tags, and the Markdown source lines visible on screen
+  - InkyCap: notebox, note, and its title, date and tags (the note it last made active)
   - kitty: the focused tab and window, its shell and foreground processes; the last command and its output (shell integration); for Neovim the open file, cursor and visible text; for Claude Code the session id, title and last prompt
   - Neovide: the same Neovim record as in kitty
 - **OCR**: PaddleOCR cloud API (PP-OCRv6, Chinese + English), falling back to local RapidOCR on timeout or error
@@ -264,7 +265,8 @@ source scripts/lr.zsh      # in ~/.zshrc
 
 lrf lunar                  # fzf: app + time │ matching line, keyword in red │ site / paper / deck
                            #   preview: screenshot with the match boxed (kitty), enter: print the JSON path,
-                           #   ctrl-f: print the file open in Neovim (app shows as kitty(neovim)), ctrl-s: open image,
+                           #   ctrl-f: print the file open in Neovim (app shows as kitty(neovim)),
+                           #   ctrl-t: print the InkyCap note's path, ctrl-s: open image,
                            #   ctrl-o: reopen the URL / Zotero page / Anki card / Neovim file and line / kitty window
 lr-search 截图保存          # plain TSV: time, app, URL or title, image path
 lr-highlight <capture.json> lunar   # PNG with matching lines boxed
@@ -311,6 +313,8 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
   "obsidian": {"vault": "Notes", "file": "diary/2026/09/2026-09-23.md", "mode": "preview", "heading": "…",
                "tags": ["#diary"], "first": 5, "lines": ["line 5 of the note", "…"],
                "open_link": "obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md"},
+  "inkycap": {"notebox": "notes", "file": "reading/attention.typ", "path": "/home/…/notes/reading/attention.typ",
+              "title": "…", "date": "2026-09-24", "zid": 20260924152701, "tags": ["ml"], "aliases": []},
   "ocr":     {"engine": "paddleocr-cloud PP-OCRv6", "fallback_reason": null,
               "text": "…", "lines": [{"text": "…", "score": 0.99, "box": [[x, y], …]}]}
 }

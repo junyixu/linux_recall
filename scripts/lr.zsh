@@ -13,11 +13,11 @@ lr-search() {
       select([.ocr.text, .window.caption, .browser.url, .zotero.title, .zotero.doi,
               (.anki | .fields // .notes[0].fields // {} | [.[]] | join("\n")),
               ((.kitty.nvim // .neovide.nvim).windows // [] | map(.lines // [] | join("\n")) | join("\n")),
-              .obsidian.file, (.obsidian.lines // [] | join("\n")),
+              .obsidian.file, (.obsidian.lines // [] | join("\n")), .inkycap.file, .inkycap.title,
               .kitty.shell.cmdline, (.kitty.shell.output // [] | join("\n")),
               .kitty.claude.title, .kitty.claude.last_prompt] | map(. // "") | join("\n")
              | ascii_downcase | contains($q | ascii_downcase))
-      | [.captured_at[:19], .window.app_name, (.browser.url // .zotero.open_link // .anki.browse_query // .obsidian.open_link // .window.caption),
+      | [.captured_at[:19], .window.app_name, (.browser.url // .zotero.open_link // .anki.browse_query // .obsidian.open_link // .inkycap.path // .window.caption),
          (input_filename | sub("\\.json$"; ".webp"))] | @tsv' "$LR_CAPTURES"/*/*.json
 }
 

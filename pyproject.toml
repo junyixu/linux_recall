@@ -3,6 +3,8 @@ name = "linux-recall"
 version = "0.1.0"
 description = "Windows Recall-like screen capture for KDE Plasma (Wayland)"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "jeepney>=0.9",
     "numpy>=2",

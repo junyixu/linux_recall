@@ -57,9 +57,25 @@ uv sync
 - Anki + [AnkiConnect](https://ankiweb.net/shared/info/2055492159) 插件（获取正在复习的卡片）
 - Obsidian 1.12+：在 设置 → 通用 里打开「命令行界面」（获取正在看的笔记和屏幕上的原文）
 - kitty：`kitty.conf` 里设置 `allow_remote_control yes` 和 `listen_on unix:/tmp/kitty`（获取当前 tab 运行的程序、Neovim 打开的文件、Claude Code 的会话）；打开 shell integration（默认开启）才能记录上一条命令和它的输出
-- `PADDLEOCR_TOKEN` 环境变量（云端 OCR；没有或超时时自动改用本地 RapidOCR）
+- `PADDLEOCR_TOKEN` 环境变量（云端 OCR；没有或超时时自动改用本地 RapidOCR，见下一节）
 
 命令行搜索还需要 `jq`；交互式搜索需要 `fzf`；标出匹配文字需要 ImageMagick（`magick`）。
+
+### 云端 OCR 的 token
+
+> [!IMPORTANT]
+> 不管是 AUR 包、deb 包还是从源码运行，都**不会**替你设置 `PADDLEOCR_TOKEN`，要自己加。
+> 没有它就只能用本地 OCR，Click to Do（只用云端）也用不了。
+
+在[百度 AI Studio 的 PaddleOCR 页面](https://aistudio.baidu.com/paddleocr)获取访问令牌，然后写进 `~/.config/environment.d/`，
+这样快捷键和 systemd 启动的 daemon 都能拿到（只在 `~/.zshrc` 里 `export` 对它们无效）：
+
+```sh
+mkdir -p ~/.config/environment.d
+echo 'PADDLEOCR_TOKEN=...' >> ~/.config/environment.d/linux-recall.conf
+```
+
+然后注销再重新登录：会话只在登录时读取 `environment.d`。
 
 ## 截图
 

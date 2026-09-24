@@ -91,8 +91,21 @@ install -Dm644 systemd/uv.conf ~/.config/systemd/user/linux-recall.service.d/uv.
 systemctl --user daemon-reload && systemctl --user enable --now linux-recall
 ```
 
-Put `PADDLEOCR_TOKEN=...` in `~/.config/environment.d/*.conf` so the hotkey and the service see it.
-Without it, OCR is local only.
+### Cloud OCR token
+
+> [!IMPORTANT]
+> Neither the packages nor the source install set `PADDLEOCR_TOKEN`; you have to add it yourself.
+> Without it, OCR is local only and Click to Do (cloud only) does not work.
+
+Get an access token from [Baidu AI Studio's PaddleOCR page](https://aistudio.baidu.com/paddleocr), then put it in
+`~/.config/environment.d/` so the hotkey and the service see it (a variable exported only in `~/.zshrc` does not reach them):
+
+```sh
+mkdir -p ~/.config/environment.d
+echo 'PADDLEOCR_TOKEN=...' >> ~/.config/environment.d/linux-recall.conf
+```
+
+Then log out and back in; the session reads `environment.d` only at login.
 
 ## Why this is harder on Wayland
 

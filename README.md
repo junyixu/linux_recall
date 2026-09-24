@@ -107,12 +107,14 @@ echo 'PADDLEOCR_TOKEN=...' >> ~/.config/environment.d/linux-recall.conf
 
 Then log out and back in; the session reads `environment.d` only at login.
 
-## Why this is harder on Wayland
+## Why this is harder on KWin Wayland
 
 On X11, any client can read the window list, the focused window and any window's pixels.
 Wayland deliberately removes all three, and KWin doesn't implement the generic protocols that
 wlroots compositors offer (`wlr-screencopy`, `ext-image-copy-capture`, `ext-foreign-toplevel-list`).
-That's why OpenRecall (`mss` → `XGetImage`) and screenpipe (`xcap`/XCB) only see XWayland windows on Plasma.
+That's why OpenRecall (`mss` → `XGetImage`) fails outright on a Wayland session, and screenpipe, which can grab
+whole monitors through the ScreenCast portal, still can't tell which window is focused on Plasma:
+its active-window lookup only knows Hyprland, Sway and X11.
 
 What linux_recall uses instead:
 
@@ -388,8 +390,9 @@ with transparent compression, so the verbose text already takes little space on 
 - [OpenRecall](https://github.com/openrecall/openrecall): open-source Recall clone in Python (AGPL-3.0).
   Captures with `mss`, which fails with `XGetImage() failed` on a Wayland session.
 - [screenpipe](https://github.com/screenpipe/screenpipe): event-driven capture, accessibility tree plus OCR,
-  SQLite full-text search. Now source-available rather than open source; on Linux it captures through X11,
-  so it only sees XWayland windows on Plasma.
+  SQLite full-text search. Now source-available rather than open source; on Plasma it records
+  whole monitors through the ScreenCast portal, but its active-window lookup only supports Hyprland, Sway and X11,
+  so it can't tell which native Wayland window you were in.
 - [Windrecorder](https://github.com/yuka-friends/Windrecorder): records and OCRs the screen; Windows only.
 - [ActivityWatch](https://activitywatch.net/): tracks app and window usage time without screenshots;
   on KWin Wayland it needs [awatcher](https://github.com/2e3s/awatcher).

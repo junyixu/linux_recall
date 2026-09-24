@@ -8,6 +8,10 @@ Measured on this setup: identical 1.0, clock tick 0.988, one new text line
 
 Every cycle logs one line (journal) and appends one record to
 ``~/.cache/linux_recall/daemon.jsonl`` for later dedup statistics.
+
+OCR runs in the background (``ocr_queue.py``); the loop only tells it
+whether the user looks idle: screen locked, or ``IDLE_STREAK`` similar
+shots in a row while CPU pressure stays under ``IDLE_PRESSURE``.
 """
 
 import argparse
@@ -23,12 +27,15 @@ from typing import Any
 from jeepney import DBusAddress, new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
-from linux_recall.capture import Excluded, save, take
-from linux_recall.ocr import CLOUD_TIMEOUT
+from linux_recall.capture import Excluded, ocr_region_known, save, take
+from linux_recall.ocr_queue import OcrQueue, cpu_pressure
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.similarity import similarity
 
 log = logging.getLogger("linux_recall")
+
+IDLE_STREAK = 3
+IDLE_PRESSURE = 10.0  # % (PSI cpu some avg60)
 
 SCREENSAVER = DBusAddress("/ScreenSaver", bus_name="org.freedesktop.ScreenSaver",
                           interface="org.freedesktop.ScreenSaver")
@@ -62,7 +69,8 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=0.95,
                         help="skip when same app and similarity >= this (0-1)")
     parser.add_argument("--no-ocr", dest="ocr", action="store_false")
-    parser.add_argument("--ocr-timeout", type=float, default=CLOUD_TIMEOUT)
+    parser.add_argument("--ocr-timeout", type=float, default=180,
+                        help="seconds per cloud OCR attempt; OCR runs in the background, so this can be long")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -72,7 +80,7 @@ def main() -> None:
     logging.getLogger("PIL").setLevel(logging.INFO)
 
     # finish the running cycle on SIGTERM (systemctl stop) instead of dying
-    # between moving the image and writing its JSON
+    # between moving the image and writing its JSON; queued OCR resumes on the next start
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
@@ -82,6 +90,11 @@ def main() -> None:
     last = last_saved(args.data_dir)
     stats_path = CACHE_DIR / "daemon.jsonl"
     counts = {"keep": 0, "skip": 0}
+    similar_streak = 0
+    queue = None
+    if args.ocr:
+        queue = OcrQueue(args.ocr_timeout)
+        queue.start()
     log.info("started: interval=%ss threshold=%s last=%s, cycle log %s",
              args.interval, args.threshold, last and last[0], stats_path)
 
@@ -90,6 +103,9 @@ def main() -> None:
         started = datetime.now().astimezone()
         try:
             if screen_locked():
+                similar_streak = 0
+                if queue:
+                    queue.idle = True
                 counts["skip"] += 1
                 log.info("SKIP  screen locked  [kept %(keep)d, skipped %(skip)d]", counts)
                 record_cycle(stats_path, started, decision="skip", reason="locked")
@@ -100,8 +116,10 @@ def main() -> None:
                 same_app = bool(last) and last[0] == shot.app
                 if same_app and sim is not None and sim >= args.threshold:
                     decision, reason = "skip", "similar"
+                    similar_streak += 1
                     shot.image.unlink()
                 else:
+                    similar_streak = 0
                     decision = "keep"
                     reason = ("first" if not last else "changed" if same_app
                               else f"app {last[0]} -> {shot.app}")
@@ -109,9 +127,16 @@ def main() -> None:
                 log.info("%-5s %-12s similarity %s (threshold %.2f)  %s  [kept %d, skipped %d]",
                          decision.upper(), shot.app, "  -  " if sim is None else f"{sim:.3f}",
                          args.threshold, reason, counts["keep"], counts["skip"])
+                if queue:
+                    queue.idle = similar_streak >= IDLE_STREAK and cpu_pressure() < IDLE_PRESSURE
                 json_path = None
                 if decision == "keep":
-                    json_path = save(shot, args.data_dir, "timer", args.ocr, args.ocr_timeout)
+                    try:
+                        json_path = save(shot, args.data_dir, "timer", ocr=False, ocr_timeout=args.ocr_timeout)
+                        if queue and ocr_region_known(shot):
+                            queue.add(shot.image, json_path, shot.region)
+                    finally:
+                        shot.image.unlink(missing_ok=True)
                     last = (shot.app, shot.dhash)
                 record_cycle(stats_path, started, decision=decision, reason=reason, app=shot.app,
                              similarity=sim and round(sim, 4), threshold=args.threshold,
@@ -122,6 +147,8 @@ def main() -> None:
             record_cycle(stats_path, started, decision="skip", reason="excluded", app=str(e))
         except Exception:
             log.exception("capture cycle failed")
+        if queue:
+            queue.wake.set()  # re-check idle / breaker even when nothing new was queued
         stop.wait(max(1.0, args.interval - (time.monotonic() - start)))
     log.info("stopped")
 

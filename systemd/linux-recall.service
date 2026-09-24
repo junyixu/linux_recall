@@ -8,8 +8,8 @@ After=graphical-session.target
 ExecStart=%h/WorkSpace/windows_recall_linux/.venv/bin/linux-recall-daemon --interval 60 --threshold 0.95
 Restart=on-failure
 RestartSec=30
-# a cycle can be mid-OCR (cloud timeout 60s + local fallback) when stopped
-TimeoutStopSec=120
+# OCR runs in the background and resumes after a restart; exit only waits for a running local OCR (~10 s)
+TimeoutStopSec=60
 Nice=10
 
 [Install]

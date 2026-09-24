@@ -157,9 +157,24 @@ window is gone, `ctrl-o` runs `claude --resume <session id>` in a new tab.
 - **Cloud**: the PaddleOCR API (PP-OCRv6, needs `PADDLEOCR_TOKEN`). It downscales detection input to 960 px and
   rejects anything above 4000 px, so a whole three-monitor desktop (6098 px wide) came back with 2 lines.
   Uploading just the window gives 100+ lines. A full queue (`code 10010`) is retried with backoff.
+  Spectacle's WebP is uploaded as is: re-encoding it as PNG gave identical text at 4× the size, and JPEG
+  (a second lossy pass) lost 5–60% of the characters.
 - **Local**: [RapidOCR](https://github.com/RapidAI/RapidOCR) (PaddleOCR models on ONNX Runtime), used when the
   cloud misses `--ocr-timeout` (default 60 s, covering the whole attempt) or errors. The JSON records which
-  engine ran and why the fallback happened.
+  engine ran and why the fallback happened. It runs in a child process, since ONNX Runtime keeps ~400 MB
+  after the first run; a 3840×2080 window costs ~30 s of CPU.
+
+On a CPU budget, cloud OCR is almost free (~0.1 s of CPU; the 5–60 s is upload and queueing) and the
+screenshot itself is ~0.6 s, mostly Spectacle. So the daemon never blocks on OCR and avoids local OCR:
+
+- Kept shots are saved with `"ocr": null` and their full-resolution original goes to
+  `~/.cache/linux_recall/pending/`; a background thread OCRs the newest one (cloud only, `--ocr-timeout`
+  defaults to 180 s there) and fills in the JSON. The queue survives restarts and keeps at most 200 originals.
+- A cloud failure pauses cloud calls for 1 min, doubling up to 30 min; the next shot after the pause
+  probes whether it's back. A missing or rejected token pauses 30 min and sends one notification.
+- While the cloud is down, local OCR (2 threads) only takes shots that have waited an hour, and only when
+  the user looks idle (screen locked, or three similar shots in a row with low CPU pressure) and the
+  laptop is plugged in.
 
 The JSON is written twice, atomically: right after the screenshot (`"ocr": null`) and again after OCR,
 so a failed OCR never loses the capture.

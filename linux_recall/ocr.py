@@ -8,13 +8,18 @@ whole multi-monitor desktop nearly empty. Raising ``textDetLimitSideLen``
 on ``~/WorkSpace/anki_agent/anki_ocr_paddle.py``.
 
 Local: RapidOCR (PaddleOCR models on ONNX Runtime), used whenever the cloud
-misses its deadline or errors out — its queue can stall for minutes.
+misses its deadline or errors out — its queue can stall for minutes. It runs
+in a child process: ONNX Runtime keeps ~400 MB after the first run, which the
+long-running daemon would otherwise hold for good.
 """
 
 import json
 import logging
+import multiprocessing
 import os
 import time
+from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -36,9 +41,9 @@ log = logging.getLogger("linux_recall")
 Line = tuple[str, float, list[list[float]]]
 
 
-def _remaining(deadline: float) -> float:
+def _remaining(deadline: float, cap: float = 30.0) -> float:
     """Per-request timeout so a slow upload or poll can't overrun the overall deadline."""
-    return max(1.0, min(30.0, deadline - time.monotonic()))
+    return max(1.0, min(cap, deadline - time.monotonic()))
 
 
 def _headers() -> dict[str, str]:
@@ -59,9 +64,11 @@ def _submit(image_path: Path, deadline: float, word_boxes: bool = False) -> str:
     data = {"model": MODEL, "optionalPayload": json.dumps(optional_payload)}
     delay = 5
     while True:
+        # no 30 s cap: the upload is one sendall() under a single timeout, and the
+        # server sometimes takes only ~40 KB/s (a 0.6 MB window WebP needs ~15 s)
         with open(image_path, "rb") as f:
             resp = requests.post(JOB_URL, headers=_headers(), data=data, files={"file": f},
-                                 timeout=_remaining(deadline))
+                                 timeout=_remaining(deadline, cap=deadline))
         # 400 + code 10010 "任务提交队列已满，请稍后重试": the shared queue is busy, not our fault
         if resp.status_code == 400 and resp.json().get("code") == QUEUE_FULL:
             if time.monotonic() + delay > deadline:
@@ -104,11 +111,20 @@ def _cloud(image_path: Path, timeout: float) -> list[Line]:
     return list(zip(pruned["rec_texts"], pruned["rec_scores"], pruned["rec_polys"]))
 
 
-def _local(image_path: Path, max_side: int) -> list[Line]:
+def _local(image_path: Path, max_side: int, threads: int) -> list[Line]:
+    with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context("spawn")) as pool:
+        return pool.submit(_local_in_process, image_path, max_side, threads).result()
+
+
+def _local_in_process(image_path: Path, max_side: int, threads: int) -> list[Line]:
     from rapidocr import RapidOCR  # heavy import, only needed on fallback
 
-    # RapidOCR downscales to 2000px by default, blurring small text on HiDPI crops
-    engine = RapidOCR(params={"Global.max_side_len": max_side, "Global.log_level": "warning"})
+    engine = RapidOCR(params={
+        # RapidOCR downscales to 2000px by default, blurring small text on HiDPI crops
+        "Global.max_side_len": max_side, "Global.log_level": "warning",
+        # -1 = all cores: ~29 s of CPU in ~4 s on a 3840x2080 window
+        "EngineConfig.onnxruntime.intra_op_num_threads": threads,
+    })
     result = engine(str(image_path))
     if result.txts is None:
         return []
@@ -116,35 +132,50 @@ def _local(image_path: Path, max_side: int) -> list[Line]:
 
 
 def run_ocr(image_path: Path, region: tuple[int, int, int, int] | None = None,
-            cloud_timeout: float = CLOUD_TIMEOUT) -> dict[str, Any]:
+            cloud_timeout: float = CLOUD_TIMEOUT, engines: Sequence[str] = ("cloud", "local"),
+            local_threads: int = -1, fallback_reason: str | None = None) -> dict[str, Any]:
     """OCR ``region`` (left, top, right, bottom in screenshot pixels) of the image, or all of it.
 
+    ``engines`` are tried in order; only the last one's failure is raised.
+    ``fallback_reason`` is recorded when the caller already skipped the cloud.
     Returned boxes are in full-screenshot pixels, not relative to the region.
     """
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    crop_path = CACHE_DIR / f"{image_path.stem}.ocr.png"
+    crop = None
     with Image.open(image_path) as im:
         region = region or (0, 0, *im.size)
-        crop = im.crop(region).convert("RGB")
-    if max(crop.size) > MAX_SIDE:
-        crop.thumbnail((MAX_SIDE, MAX_SIDE))
-    factor = (region[2] - region[0]) / crop.width  # undo the thumbnail when mapping boxes back
+        if tuple(region) == (0, 0, *im.size) and max(im.size) <= MAX_SIDE:
+            # upload Spectacle's WebP as is: same OCR result as a re-encoded PNG at ~1/4 the size
+            upload, upload_size = image_path, im.size
+        else:  # fullscreen: only the active window, shrunk to the server's limit
+            crop = im.crop(region).convert("RGB")
+            if max(crop.size) > MAX_SIDE:
+                crop.thumbnail((MAX_SIDE, MAX_SIDE))
+            upload, upload_size = CACHE_DIR / f"{image_path.stem}.ocr.png", crop.size
+    factor = (region[2] - region[0]) / upload_size[0]  # undo the thumbnail when mapping boxes back
 
     start = time.perf_counter()
-    fallback_reason = None
     try:
-        crop.save(crop_path)
-        try:
-            raw = _cloud(crop_path, cloud_timeout)
-            engine = f"paddleocr-cloud {MODEL}"
-        except Exception as e:
-            fallback_reason = f"{type(e).__name__}: {e}"
-            log.warning("cloud OCR failed after %.1fs (%s), falling back to local",
-                        time.perf_counter() - start, fallback_reason)
-            raw = _local(crop_path, max(crop.size))
-            engine = f"rapidocr {version('rapidocr')}"
+        if crop:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            crop.save(upload)
+        for i, name in enumerate(engines):
+            try:
+                if name == "cloud":
+                    raw = _cloud(upload, cloud_timeout)
+                    engine = f"paddleocr-cloud {MODEL}"
+                else:
+                    raw = _local(upload, max(upload_size), local_threads)
+                    engine = f"rapidocr {version('rapidocr')}"
+                break
+            except Exception as e:
+                if i == len(engines) - 1:
+                    raise
+                fallback_reason = f"{type(e).__name__}: {e}"
+                log.warning("%s OCR failed after %.1fs (%s), falling back to %s", name,
+                            time.perf_counter() - start, fallback_reason, engines[i + 1])
     finally:
-        crop_path.unlink(missing_ok=True)
+        if crop:
+            upload.unlink(missing_ok=True)
     elapsed = time.perf_counter() - start
 
     left, top = region[:2]

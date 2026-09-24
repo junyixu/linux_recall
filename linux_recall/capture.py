@@ -4,7 +4,8 @@
 writes a copy downscaled to logical pixels (HiDPI screens make captures 2x
 per side) into the captures dir and OCRs the full-resolution original, since
 downscaled small text loses most OCR lines (105 -> 42 on a kitty window). The hotkey does both at once,
-the daemon (``daemon.py``) drops shots too similar to the last saved one.
+the daemon (``daemon.py``) drops shots too similar to the last saved one and
+hands the original to a background OCR queue (``ocr_queue.py``).
 
 The JSON sidecar is written twice:
 right after the screenshot (``"ocr": null``) and again once OCR finishes, so
@@ -188,16 +189,8 @@ def _scale_ocr(ocr: dict[str, Any], factor: float) -> dict[str, Any]:
 
 def save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: float,
          full_res: bool = False) -> Path:
-    """Save the shot (downscaled unless ``full_res``) into the captures dir, write its JSON,
-    then OCR the full-resolution original and delete it."""
-    try:
-        return _save(shot, data_dir, trigger, ocr, ocr_timeout, full_res)
-    finally:
-        shot.image.unlink(missing_ok=True)
-
-
-def _save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: float,
-          full_res: bool) -> Path:
+    """Save the shot (downscaled unless ``full_res``) into the captures dir and write its JSON,
+    then OCR the full-resolution original. The original is left for the caller to delete."""
     day_dir = data_dir / "captures" / f"{shot.captured_at:%Y-%m-%d}"
     day_dir.mkdir(parents=True, exist_ok=True)
     image_path = day_dir / shot.image.name
@@ -240,23 +233,39 @@ def _save(shot: Shot, data_dir: Path, trigger: str, ocr: bool, ocr_timeout: floa
 
     if not ocr:
         return json_path
-    # OCR only the active window; "window"/"monitor" screenshots are small enough as a whole
-    if shot.mode == "fullscreen" and not shot.region:
+    if not ocr_region_known(shot):
         log.warning("no active window region, skipping OCR")
         return json_path
     try:
-        record["ocr"] = _scale_ocr(run_ocr(shot.image, shot.region, ocr_timeout), factor)
+        add_ocr(json_path, shot.image, shot.region, cloud_timeout=ocr_timeout)
     except Exception:
         log.exception('OCR failed; capture kept with "ocr": null')
-        return json_path
-    write_json(json_path, record)
-    log.info("ocr (%s) %d lines in %.2fs", record["ocr"]["engine"], len(record["ocr"]["lines"]), record["ocr"]["elapsed_s"])
     return json_path
+
+
+def ocr_region_known(shot: Shot) -> bool:
+    """OCR only the active window; "window"/"monitor" screenshots are small enough as a whole."""
+    return shot.mode != "fullscreen" or shot.region is not None
+
+
+def add_ocr(json_path: Path, original: Path, region: tuple[int, int, int, int] | None,
+            **ocr_args: Any) -> dict[str, Any]:
+    """OCR ``region`` of the full-resolution ``original`` and write the result into the saved JSON."""
+    record = json.loads(json_path.read_text())
+    ocr = _scale_ocr(run_ocr(original, region, **ocr_args), record["screenshot"]["scale"])
+    record["ocr"] = ocr
+    write_json(json_path, record)
+    log.info("ocr (%s) %d lines in %.2fs  %s", ocr["engine"], len(ocr["lines"]), ocr["elapsed_s"], json_path.stem)
+    return ocr
 
 
 def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: float,
             full_res: bool = False) -> Path:
-    return save(take(mode), data_dir, trigger, ocr, ocr_timeout, full_res)
+    shot = take(mode)
+    try:
+        return save(shot, data_dir, trigger, ocr, ocr_timeout, full_res)
+    finally:
+        shot.image.unlink(missing_ok=True)
 
 
 def main() -> None:

@@ -144,6 +144,15 @@ JSON 的主要字段：
 
 `systemd/linux-recall.service` 每分钟截一次活动窗口；如果和上一次保存的截图是同一个程序、而且画面相似度 ≥ 0.95（dHash），就不保存。锁屏时跳过。
 
+OCR 在后台做，不会拖慢截图：
+
+- 保存时 `ocr` 先是 `null`，原始分辨率的图放进 `~/.cache/linux_recall/pending/`，后台线程从最新的一张开始调用云端 OCR，识别完写回 JSON 并删掉原图。daemon 重启后接着识别；最多留 200 张，超出就删最旧的（那张的 `ocr` 保持 `null`）
+- daemon 的 `--ocr-timeout` 默认 180 秒（快捷键仍是 60 秒）
+- 云端失败后暂停调用 1 分钟，之后每次失败翻倍，最多 30 分钟；暂停结束后的第一张就是试探。没有 `PADDLEOCR_TOKEN` 或 token 被拒（401/403）时直接暂停 30 分钟，并弹一次通知
+- 云端不可用时，等了一小时以上的截图才会用本地 RapidOCR（限 2 个线程）识别，而且要满足：看起来没人在用（锁屏，或者连续 3 轮画面没变且 CPU 压力低）并且接着电源
+
+资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 20–40 秒 CPU、1.3 GB 内存，所以放在子进程里跑，跑完内存就释放。
+
 ```sh
 cp systemd/linux-recall.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now linux-recall
@@ -274,7 +283,7 @@ jq -r 'select(.kitty.claude.session_id) | [.kitty.claude.session_id, .kitty.clau
 jq -r '.browser.url // empty' */*.json | sort -u
 ```
 
-**OCR 失败或用了本地兜底的截图**
+**OCR 失败或用了本地兜底的截图**（daemon 的截图在后台识别完之前 `ocr` 也是 `null`）
 
 ```sh
 jq -r 'select(.ocr == null or .ocr.fallback_reason != null) | input_filename' */*.json

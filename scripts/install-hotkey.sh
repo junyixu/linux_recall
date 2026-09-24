@@ -13,11 +13,14 @@ META=0x10000000 ALT=0x08000000
 install_hotkey() {
     local cmd=$1 name=$2 icon=$3 key=$4
     local id=net.local.$cmd.desktop
+    # a uv checkout runs its .venv; an installed package finds the command on PATH
+    local exe=$repo/.venv/bin/$cmd
+    [[ -x $exe ]] || exe=$(command -v "$cmd")
     cat >"$apps/$id" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=$name
-Exec=$repo/.venv/bin/$cmd
+Exec=$exe
 Icon=$icon
 NoDisplay=true
 StartupNotify=false

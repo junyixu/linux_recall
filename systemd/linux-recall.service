@@ -5,7 +5,8 @@ PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
-ExecStart=%h/WorkSpace/windows_recall_linux/.venv/bin/linux-recall-daemon --interval 60 --threshold 0.95
+# the packaged binary; a uv checkout overrides this with systemd/uv.conf
+ExecStart=/usr/bin/linux-recall-daemon --interval 60 --threshold 0.95
 Restart=on-failure
 RestartSec=30
 # OCR runs in the background and resumes after a restart; exit only waits for a running local OCR (~10 s)

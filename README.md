@@ -212,14 +212,25 @@ Allow other applications on this computer to communicate with Zotero*; Anki with
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159); Obsidian 1.12+ with its CLI enabled; `PADDLEOCR_TOKEN` for cloud OCR;
 `jq`, `fzf`, ImageMagick and kitty for search.
 
+On Arch Linux, install [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git) from the AUR, then:
+
+```sh
+linux-recall-install-hotkey                     # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
+systemctl --user enable --now linux-recall      # optional: capture every minute
+source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / lr-highlight (lrf is in /usr/bin)
+```
+
+From a checkout:
+
 ```sh
 git clone https://github.com/junyixu/linux_recall ~/WorkSpace/windows_recall_linux
 cd ~/WorkSpace/windows_recall_linux
 uv sync
 ./scripts/install-hotkey.sh          # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
 
-# optional: capture every minute
-cp systemd/linux-recall.service ~/.config/systemd/user/   # edit ExecStart if you cloned elsewhere
+# optional: capture every minute; uv.conf points the unit at .venv (edit it if you cloned elsewhere)
+cp systemd/linux-recall.service ~/.config/systemd/user/
+install -Dm644 systemd/uv.conf ~/.config/systemd/user/linux-recall.service.d/uv.conf
 systemctl --user daemon-reload && systemctl --user enable --now linux-recall
 ```
 

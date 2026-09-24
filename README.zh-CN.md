@@ -6,6 +6,15 @@ KDE Plasma 6 (Wayland) 上的 Windows Recall 式工具：按一个快捷键（�
 
 ## 安装
 
+Arch Linux 可以从 AUR 装 [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git)，然后：
+
+```sh
+linux-recall-install-hotkey                  # 注册全局快捷键 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do）
+source /usr/share/linux_recall/lr.zsh        # 放进 ~/.zshrc，提供 lr-search / lr-highlight（lrf 在 /usr/bin 里）
+```
+
+从源码运行：
+
 ```sh
 cd ~/WorkSpace/windows_recall_linux
 uv sync
@@ -154,7 +163,11 @@ OCR 在后台做，不会拖慢截图：
 资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 20–40 秒 CPU、1.3 GB 内存，所以放在子进程里跑，跑完内存就释放。
 
 ```sh
+systemctl --user enable --now linux-recall   # AUR 包：unit 已经装好
+
+# 从源码运行：再装上 uv.conf，让 unit 用仓库里的 .venv（仓库不在 ~/WorkSpace/windows_recall_linux 时改一下里面的路径）
 cp systemd/linux-recall.service ~/.config/systemd/user/
+install -Dm644 systemd/uv.conf ~/.config/systemd/user/linux-recall.service.d/uv.conf
 systemctl --user daemon-reload && systemctl --user enable --now linux-recall
 ```
 

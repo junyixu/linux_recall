@@ -12,7 +12,10 @@ You can jump back to the source with one key: the web page, the PDF page in Zote
 ## Demo
 
 
-https://github.com/user-attachments/assets/d722e4a9-abe3-43de-b14c-d092b55a7dd6
+
+
+https://github.com/user-attachments/assets/99fa2c02-1c16-431c-baca-bb3f1fdb6e25
+
 
 
 ## Features

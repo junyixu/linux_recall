@@ -23,7 +23,7 @@ from typing import Any
 from jeepney import DBusAddress, new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
-from linux_recall.capture import save, take
+from linux_recall.capture import Excluded, save, take
 from linux_recall.ocr import CLOUD_TIMEOUT
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.similarity import similarity
@@ -116,6 +116,10 @@ def main() -> None:
                 record_cycle(stats_path, started, decision=decision, reason=reason, app=shot.app,
                              similarity=sim and round(sim, 4), threshold=args.threshold,
                              file=json_path and str(json_path))
+        except Excluded as e:
+            counts["skip"] += 1
+            log.info("SKIP  excluded window (%s)  [kept %d, skipped %d]", e, counts["keep"], counts["skip"])
+            record_cycle(stats_path, started, decision="skip", reason="excluded", app=str(e))
         except Exception:
             log.exception("capture cycle failed")
         stop.wait(max(1.0, args.interval - (time.monotonic() - start)))

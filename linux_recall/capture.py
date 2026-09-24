@@ -27,6 +27,7 @@ from jeepney import DBusAddress, new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
 from linux_recall.browser import get_active_tab, is_browser
+from linux_recall.exclude import excluded
 from linux_recall.kwin import get_kwin_state
 from linux_recall.ocr import CLOUD_TIMEOUT, run_ocr
 from linux_recall.paths import CACHE_DIR, DATA_DIR
@@ -61,6 +62,10 @@ def notify(summary: str, body: str) -> None:
                           ("linux_recall", 0, "camera-photo", summary, body, [], {}, 3000))
     with open_dbus_connection(bus="SESSION") as conn:
         conn.send_and_get_reply(msg, timeout=2)
+
+
+class Excluded(Exception):
+    """The active window is on the exclusion list (``exclude.py``); nothing was captured."""
 
 
 @dataclass
@@ -99,6 +104,8 @@ def take(mode: str = "window") -> Shot:
         log.exception("KWin query failed")
         state = {"window": None, "screens": None}
     window = state["window"]
+    if reason := excluded(window):
+        raise Excluded(reason)
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     image = CACHE_DIR / f"{shot_id}.webp"
@@ -262,6 +269,11 @@ def main() -> None:
     )
     try:
         json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger, args.ocr_timeout, args.full_res)
+    except Excluded as e:
+        log.info("excluded window (%s), not captured", e)
+        if args.notify:
+            notify("Not captured", f"Excluded window: {e}")
+        return
     except Exception as e:
         log.exception("capture failed")
         if args.notify:

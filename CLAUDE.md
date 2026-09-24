@@ -54,6 +54,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
   - `take()`：活动窗口（约 50 ms）→ 截图到缓存目录（`window` 模式约 0.5 s）→ 浏览器 URL → 计算 dHash 和屏幕缩放比
   - `save()`：把截图按屏幕缩放比缩小到逻辑分辨率后存进数据目录（`--full-res` 不缩小），写 JSON；然后用**原始分辨率**的图做 OCR，把坐标换算到保存的图片上，再写一次 JSON，最后删掉缓存里的原图。缩小后再 OCR，kitty 窗口会从 105 行掉到 42 行，所以一定要先用原图识别
 - `daemon.py`：每 `--interval` 秒 `take()` 一次；如果和上一次保存的是同一个程序，而且 dHash 相似度 ≥ `--threshold`，就丢弃，否则 `save()`。换了程序一定保存；锁屏时跳过（`org.freedesktop.ScreenSaver.GetActive`）。每轮写一行日志，并往 `daemon.jsonl` 追加一条记录。收到 SIGTERM 会先跑完当前这一轮
+- `exclude.py`：排除名单。`take()` 拿到 KWin 状态后、调用 spectacle 之前检查活动窗口（`APPS` 按 `desktop_file`，`CAPTIONS` 按标题子串），命中就抛 `capture.Excluded`；daemon 记为 `skip` / `reason="excluded"`，快捷键弹通知 “Not captured” 后正常退出。Spectacle 自己也在名单里（框选界面是整个桌面的静止画面）
 - `similarity.py`：16×16 dHash，相似度 = 1 − 汉明距离 / 256。实测：完全相同 1.0，时钟跳一下 0.988，多一行字 0.977，多一段 0.93，滚动 300px 0.82，内容完全不同 0.5–0.73
 - `kwin.py`：`get_kwin_state()` 返回活动窗口和各显示器的几何信息。用 jeepney 往 `org.kde.KWin /Scripting` 加载一段临时 KWin 脚本，脚本读 `workspace.activeWindow`、`workspace.screens` 后用 `callDBus` 回调到我们的 unique bus name，用完就 unload（和 kdotool 同一个思路，但一次调用拿全所有字段）
 - `browser.py`：Plasma Browser Integration `/TabsRunner`（krunner1 接口）。把窗口标题去掉浏览器后缀，找 `relevance == 1` 且标题完全相同的标签页
@@ -110,4 +111,4 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 4. ✅ Click to Do 第一版（Firefox 页面、按单词选择、复制）；待做：全屏覆盖层（pywebview）、更快的识别
 5. 省空间：✅ 只存活动窗口、缩小到逻辑分辨率；待做：旧图片只留 N 天（JSON 永久保留）、降低 WebP 质量
 6. 更多应用上下文：✅ Anki（AnkiConnect）、kitty（shell 命令和输出、Neovim、Claude Code）、Neovide；待做：Okular、Dolphin
-7. 隐私：排除名单（密码管理器、隐私窗口、银行网站）、加密存储、一键暂停；补跑 `ocr` 为 `null` 的截图
+7. 隐私：✅ 排除名单（密码管理器、认证框、隐私窗口、Spectacle）；待做：按网址排除（银行网站）、加密存储、一键暂停；补跑 `ocr` 为 `null` 的截图

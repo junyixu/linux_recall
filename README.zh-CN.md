@@ -148,9 +148,10 @@ INFO KEEP  kitty        similarity 0.543 (threshold 0.95)  changed  [kept 2, ski
 INFO SKIP  kitty        similarity 1.000 (threshold 0.95)  similar  [kept 2, skipped 1]
 INFO KEEP  firefox      similarity 0.612 (threshold 0.95)  app kitty -> firefox  [kept 3, skipped 1]
 INFO SKIP  screen locked  [kept 3, skipped 2]
+INFO SKIP  excluded window (org.keepassxc.KeePassXC)  [kept 3, skipped 3]
 ```
 
-`reason` 的含义：`first` 服务启动后的第一张；`changed` 同一个程序但画面变了；`similar` 太相似，没保存；`app A -> B` 换了程序（不管多相似都保存）；`locked` 锁屏。
+`reason` 的含义：`first` 服务启动后的第一张；`changed` 同一个程序但画面变了；`similar` 太相似，没保存；`app A -> B` 换了程序（不管多相似都保存）；`locked` 锁屏；`excluded` 活动窗口在排除名单里（见[隐私](#隐私)），`app` 是被排除的程序或标题里匹配到的词。
 
 **去重效果统计**：每一轮也会追加一条记录到 `~/.cache/linux_recall/daemon.jsonl`：
 
@@ -324,4 +325,11 @@ lr-highlight 2026-09-23/20260923-205142-366.json lunar && xdg-open /tmp/lr-highl
 
 ## 隐私
 
-截图和 OCR 文字都**没有加密**，而且云端 OCR 会把活动窗口的截图上传到百度 AI Studio。还没有排除名单，所以截图前请确认屏幕上没有密码或其他敏感信息。不想上传到云端时，就不要设置 `PADDLEOCR_TOKEN`，这样只用本地 OCR。注意快捷键启动的程序从 `~/.config/environment.d/` 读取这个变量，只在终端里 `unset` 对快捷键无效；单次命令行运行可以用 `env -u PADDLEOCR_TOKEN uv run linux-recall-capture`。
+截图和 OCR 文字都**没有加密**，而且云端 OCR 会把活动窗口的截图上传到百度 AI Studio。排除名单只覆盖少数程序，所以截图前请确认屏幕上没有密码或其他敏感信息。
+
+**排除名单**（`linux_recall/exclude.py`）：活动窗口是下面这些时，定时和快捷键都不截图（连 spectacle 都不调用，缓存里也不会有图片）；快捷键会弹通知 “Not captured”。
+
+- `APPS`（按 `desktop_file` 匹配）：KeePassXC、Bitwarden、1Password、KWallet、Seahorse、polkit 认证框、ksshaskpass、pinentry-qt，以及 Spectacle 本身（它的框选界面是整个桌面的静止画面）
+- `CAPTIONS`（窗口标题包含）：`Private Browsing`（Firefox 隐私窗口）、`(Incognito)`、`(Private)`、`[InPrivate]`
+
+要加别的程序，把它的 `desktop_file` 加进 `APPS`（用 `uv run python -m linux_recall.kwin` 查），改完 `systemctl --user restart linux-recall`。只检查活动窗口：`--mode fullscreen` 截的整个桌面里仍然可能有别的窗口；银行网站这类按网址排除的还没做。不想上传到云端时，就不要设置 `PADDLEOCR_TOKEN`，这样只用本地 OCR。注意快捷键启动的程序从 `~/.config/environment.d/` 读取这个变量，只在终端里 `unset` 对快捷键无效；单次命令行运行可以用 `env -u PADDLEOCR_TOKEN uv run linux-recall-capture`。

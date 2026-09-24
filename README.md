@@ -160,7 +160,7 @@ so a failed OCR never loses the capture.
 Measured on this setup: identical 1.0, clock tick 0.988, one new line of text 0.977, a new paragraph 0.93,
 300 px scroll 0.82, unrelated content 0.5–0.73. The daemon drops a shot when it's the same app as the last
 saved one and similarity ≥ `--threshold` (0.95); an app switch is always kept, and nothing is taken while the
-screen is locked. Each cycle logs one line and appends to `~/.cache/linux_recall/daemon.jsonl`:
+screen is locked or the active window is excluded (see [Privacy](#privacy)). Each cycle logs one line and appends to `~/.cache/linux_recall/daemon.jsonl`:
 
 ```
 KEEP  kitty        similarity 0.543 (threshold 0.95)  changed  [kept 2, skipped 0]
@@ -272,14 +272,18 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
 ## Privacy
 
 Everything is stored **unencrypted** on your disk, and cloud OCR uploads the window image to Baidu AI Studio.
-There is no exclusion list yet (password managers, private windows, banking sites), so review what you record.
+A small exclusion list (`linux_recall/exclude.py`) is checked right after the KWin query, before Spectacle runs, so
+nothing of those windows is ever written: password managers (KeePassXC, Bitwarden, 1Password, KWallet), auth prompts
+(polkit, ksshaskpass, pinentry), Spectacle's own region-select overlay (a frozen image of the whole desktop), and
+windows whose caption contains `Private Browsing`, `(Incognito)`, `(Private)` or `[InPrivate]`. Only the active window
+is checked, and there's no URL-based list (banking sites) yet, so review what you record.
 Unset `PADDLEOCR_TOKEN` in `environment.d` to keep OCR local.
 
 ## Status
 
 A personal tool, built and tested on Arch Linux + Plasma 6.7 with three mixed-DPI monitors.
 Next up: SQLite FTS5 index, event-driven triggers (window switch, `ext-idle-notify-v1`), expiring old images while
-keeping the JSON, an exclusion list, and encryption.
+keeping the JSON, URL-based exclusions, and encryption.
 
 ## Similar projects
 

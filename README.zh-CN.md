@@ -17,6 +17,7 @@ uv sync
 - `plasma-browser-integration`，并在浏览器里装对应扩展（获取网址）
 - Zotero 7+：在 设置 → 高级 里勾选「允许此计算机上的其他应用程序与 Zotero 通信」（获取正在读的论文和页码）
 - Anki + [AnkiConnect](https://ankiweb.net/shared/info/2055492159) 插件（获取正在复习的卡片）
+- kitty：`kitty.conf` 里设置 `allow_remote_control yes` 和 `listen_on unix:/tmp/kitty`（获取当前 tab 运行的程序、Neovim 打开的文件、Claude Code 的会话）；打开 shell integration（默认开启）才能记录上一条命令和它的输出
 - `PADDLEOCR_TOKEN` 环境变量（云端 OCR；没有或超时时自动改用本地 RapidOCR）
 
 命令行搜索还需要 `jq`；交互式搜索需要 `fzf`；标出匹配文字需要 ImageMagick（`magick`）。
@@ -85,6 +86,36 @@ JSON 的主要字段：
     "fields": {"Front": "…", "Back": "…"},          // 纯文本，可以搜索
     "browse_query": "cid:1706122964826"              // ctrl-o 用 guiBrowse 打开这张卡片
   },
+  "kitty": {                                         // 不是 kitty 或没开远程控制时为 null
+    "address": "unix:/tmp/kitty-7201",               // kitty 远程控制的 socket，ctrl-o 用它切回那个窗口
+    "tab": {"id": 35, "title": "nvim"},              // 获得焦点的 tab
+    "window": {"id": 37, "pid": 16134, "cmdline": ["/bin/zsh"], "cwd": "…"},  // tab 里获得焦点的 kitty window（shell）
+    "foreground_processes": [{"pid": 98870, "cmdline": ["nvim"], "cwd": "…"}],  // shell 前台运行的程序
+    "nvim": {                                        // 前台不是 Neovim 时为 null
+      "pid": 98870, "server_pid": 98871,             // TUI 进程和 nvim --embed 服务进程
+      "address": "/run/user/1000/nvim.98871.0",
+      "file": "/home/…/notes.md", "line": 17, "col": 1, "filetype": "markdown", "modified": false,
+      "mode": "n", "cwd": "…", "buffers": ["/home/…/notes.md"],  // 当前文件、光标、所有打开的 buffer
+      "windows": [{                                  // 当前 tabpage 的每个窗口（不含浮动窗口）
+        "file": "/home/…/notes.md", "buftype": "", "current": true,
+        "first": 3,                                  // lines[i] 是文件的第 first + i 行
+        "lines": ["…", "…"]                          // 截图时看得到的原文；插件界面和 .env、~/.ssh 等敏感文件为 null
+      }]
+    },
+    "shell": {                                       // 需要 kitty 的 shell integration
+      "cmdline": "make test",                        // 上一条命令；at_prompt 为 false 时是正在运行的命令
+      "at_prompt": true, "exit_status": 1,           // 运行中时 exit_status 为 null
+      "output_lines": 312, "output": ["…"]           // 命令的输出(准确的终端文字，不用 OCR)，只留最后 200 行；
+                                                     // 全屏程序和 pass/gpg/printenv/cat .env 等只记命令
+    },
+    "claude": {                                      // 前台是 Claude Code 时
+      "session_id": "c26e9654-…", "cwd": "…", "status": "busy", "name": "…",
+      "title": "Kitty API 获取活动进程和文件",       // 会话记录里最新的 ai-title
+      "last_prompt": "…",                            // 最后一次提问
+      "transcript": "~/.claude/projects/…/c26e9654-….jsonl"
+    }
+  },
+  "neovide": {"nvim": {…}},                          // Neovide 窗口，字段和 kitty.nvim 一样；不是 Neovide 时为 null
   "ocr": {
     "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
     "fallback_reason": null,                         // 为什么改用本地 OCR
@@ -192,6 +223,31 @@ xdg-open 'zotero://open-pdf/library/items/I2R4MPPK?page=48'   # 在 Zotero 里�
 jq -r 'select(.anki.card_id) | [.captured_at[:16], .anki.deck, (.anki.fields | first(.[]) | .[:60])] | @tsv' */*.json
 ```
 
+**在 Neovim 里编辑过的文件**
+
+```sh
+jq -r 'select(.kitty.nvim.file) | [.captured_at[:16], "\(.kitty.nvim.file):\(.kitty.nvim.line)"] | @tsv' */*.json
+```
+
+**在 Neovim 里看到过的代码**（buffer 原文，没有 OCR 误差，带行号）
+
+```sh
+jq -r --arg q _children '.captured_at[:16] as $t | .kitty.nvim.windows // [] | .[] | select(.lines) | . as $w
+  | .lines | to_entries[] | select(.value | contains($q)) | [$t, "\($w.file):\($w.first + .key)", .value] | @tsv' */*.json
+```
+
+**跑过的失败命令**（kitty shell integration）
+
+```sh
+jq -r 'select(.kitty.shell.exit_status // 0 | . != 0) | [.captured_at[:16], .kitty.shell.exit_status, .kitty.shell.cmdline] | @tsv' */*.json | sort -u -k3
+```
+
+**Claude Code 的会话**（`claude --resume <id>` 可以接着聊）
+
+```sh
+jq -r 'select(.kitty.claude.session_id) | [.kitty.claude.session_id, .kitty.claude.cwd, .kitty.claude.title] | @tsv' */*.json | sort -u
+```
+
 **浏览过的网址（去重）**
 
 ```sh
@@ -255,7 +311,7 @@ source ~/WorkSpace/windows_recall_linux/scripts/lr.zsh
 | 命令 | 作用 |
 |---|---|
 | `lr-search <关键词>` | 就是上面那条 jq 命令，输出 时间 / 程序 / 网址或标题 / 截图路径 |
-| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 │ 所在那行文字，关键词标红 │ 时间和网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）。Anki 卡片的字段也能搜索，匹配的每一行单独一行显示 |
+| `lr [关键词]` | 用 fzf 交互式搜索：每行是一处匹配（程序 + 截图时间（月-日 时:分）│ 所在那行文字，关键词标红 │ 网站/论文页码）；右侧预览截图（kitty 里显示图片，选中的行红框、其他匹配橙框；不在 kitty 里显示 OCR 文字）。回车输出选中截图的 JSON 路径（可以接着用 jq 处理），`ctrl-f` 输出截图时 Neovim 打开的文件路径（kitty 前台是 Neovim 的截图，程序名显示为 `kitty(neovim)`；没有文件时不退出），`ctrl-s` 打开截图，`ctrl-o` 回到当时的内容：打开网址；在 Zotero 里打开论文并跳到那一页；在 Anki 的 Browse 窗口里打开那张卡片（`guiBrowse`）；Neovim 的截图：那个 nvim 还开着，就在它里面打开文件、跳到那一行，并切到它所在的 kitty 窗口，已经关了就新开一个 kitty tab 运行 `nvim +行号 文件`；Neovide 的截图同理（还开着就跳过去并用 `kdotool` 把窗口提到前面，关了就 `neovide -- +行号 文件`）；其他 kitty 截图：切到当时那个 kitty 窗口，窗口关了但 tab 还在就切到那个 tab，都关了时如果截图时在跑 Claude Code，就新开一个 tab 运行 `claude --resume <会话 id>`，否则提示。shell 的命令和输出、Claude Code 的会话标题和最后一次提问也能搜索。Anki 卡片的字段和 Neovim 截图时看得到的 buffer 原文也能搜索，匹配的每一行单独一行显示（Neovim 显示成 `文件名:行号`，`ctrl-o` 跳到这一行，`ctrl-f` 输出这个文件） |
 | `lr-highlight <json> <关键词> [输出.png]` | 在截图上用红框标出匹配的行，并裁剪到 OCR 区域，默认输出 `/tmp/lr-highlight.png` |
 
 ```sh

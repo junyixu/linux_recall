@@ -6,14 +6,21 @@ KDE Plasma 6 (Wayland) 上的 Windows Recall 式工具：按一个快捷键（�
 
 ## 安装
 
-Arch Linux 可以从 AUR 装 [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git)，然后：
+### Arch Linux
+
+AUR 里有 [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git)，从最新的提交构建，依赖由 pacman 安装（`python-rapidocr` 也在 AUR 里），所以用 AUR 助手装：
 
 ```sh
+paru -S linux-recall-git                     # 或者 yay -S，或者 clone AUR 仓库后 makepkg -si
 linux-recall-install-hotkey                  # 注册全局快捷键 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do）
+systemctl --user enable --now linux-recall   # 可选：每分钟自动截图
 source /usr/share/linux_recall/lr.zsh        # 放进 ~/.zshrc，提供 lr-search / lr-highlight（lrf 在 /usr/bin 里）
 ```
 
-从源码运行：
+搜索用到的工具是可选依赖：`pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`。
+用 AUR 包时，下文命令里的 `uv run` 去掉即可。
+
+### 从源码运行
 
 ```sh
 cd ~/WorkSpace/windows_recall_linux

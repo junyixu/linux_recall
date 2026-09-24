@@ -206,21 +206,29 @@ using dynamic programming over glyph gaps.
 
 ## Install
 
-Requirements: KDE Plasma 6 (Wayland), Python ≥ 3.12, [uv](https://docs.astral.sh/uv/), `spectacle`.
+Requirements: KDE Plasma 6 (Wayland), Python ≥ 3.12, `spectacle`; [uv](https://docs.astral.sh/uv/) when running from source.
 Optional: `plasma-browser-integration` plus its browser extension (URLs); Zotero 7+ with *Settings → Advanced →
 Allow other applications on this computer to communicate with Zotero*; Anki with
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159); Obsidian 1.12+ with its CLI enabled; `PADDLEOCR_TOKEN` for cloud OCR;
 `jq`, `fzf`, ImageMagick and kitty for search.
 
-On Arch Linux, install [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git) from the AUR, then:
+### Arch Linux
+
+[`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git) is in the AUR.
+It builds from the latest commit and pulls in its dependencies from pacman (`python-rapidocr` also comes from the AUR),
+so use an AUR helper:
 
 ```sh
+paru -S linux-recall-git                        # or yay -S, or makepkg -si in a clone of the AUR repo
 linux-recall-install-hotkey                     # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
 systemctl --user enable --now linux-recall      # optional: capture every minute
 source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / lr-highlight (lrf is in /usr/bin)
 ```
 
-From a checkout:
+The search tools are optional dependencies: `pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`.
+With the package, drop `uv run` from the commands below.
+
+### From source
 
 ```sh
 git clone https://github.com/junyixu/linux_recall ~/WorkSpace/windows_recall_linux

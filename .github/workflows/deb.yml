@@ -1,0 +1,46 @@
+name: deb
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Check the tag against pyproject.toml
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          [[ "v$version" == "$GITHUB_REF_NAME" ]] || { echo "tag $GITHUB_REF_NAME != pyproject $version"; exit 1; }
+
+      - run: scripts/build-deb.sh
+
+      # the bundled Python must work without the runner's; dependencies are forced since
+      # spectacle would pull in most of KDE
+      - name: Smoke test on Debian 13
+        run: |
+          docker run --rm -v "$PWD/dist:/dist" debian:trixie sh -euc '
+            apt-get update -qq && apt-get install -qq -y libgl1 libglib2.0-0 >/dev/null
+            dpkg --force-depends -i /dist/*.deb
+            linux-recall-capture --help
+            linux-recall-daemon --help
+            /usr/lib/linux-recall/venv/bin/python -c "import rapidocr, onnxruntime, linux_recall.clicktodo"'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.deb --generate-notes

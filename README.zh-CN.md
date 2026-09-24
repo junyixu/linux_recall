@@ -6,7 +6,8 @@ KDE Plasma 6 (Wayland) 上的 Windows Recall 式工具：按一个快捷键（�
 
 ## 安装
 
-### Arch Linux
+<details>
+<summary><b>Arch Linux</b>（AUR）</summary>
 
 AUR 里有 [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git)，从最新的提交构建，依赖由 pacman 安装（`python-rapidocr` 也在 AUR 里），所以用 AUR 助手装：
 
@@ -19,6 +20,27 @@ source /usr/share/linux_recall/lr.zsh        # 放进 ~/.zshrc，提供 lr-searc
 
 搜索用到的工具是可选依赖：`pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`。
 用 AUR 包时，下文命令里的 `uv run` 去掉即可。
+
+</details>
+
+<details>
+<summary><b>Debian / Ubuntu</b>（.deb）</summary>
+
+每个 [Release](https://github.com/junyixu/linux_recall/releases/latest) 都附带 amd64 的 `.deb`，适用于带 Plasma 6 的发行版：Debian 13、Kubuntu 25.04+、KDE neon。
+Debian 没有打包 `onnxruntime` 和 `rapidocr`，所以这个包自带 Python 和所有依赖，装在 `/usr/lib/linux-recall`（安装后约 500 MB，大头是 OpenCV 和 ONNX Runtime）。
+
+```sh
+sudo apt install ./linux-recall_*_amd64.deb  # 从 Release 下载的文件
+linux-recall-install-hotkey                  # 注册全局快捷键 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do）
+systemctl --user enable --now linux-recall   # 可选：每分钟自动截图
+source /usr/share/linux_recall/lr.zsh        # 放进 ~/.zshrc，提供 lr-search / lr-highlight（lrf 在 /usr/bin 里）
+```
+
+`jq`、`fzf`、`imagemagick`、`kitty`、`plasma-browser-integration` 是推荐依赖，默认会一起装上；
+`lrf` 标出匹配文字要用 ImageMagick 7（`magick`），Ubuntu 24.04 及更早的版本没有。
+用 deb 包时，下文命令里的 `uv run` 去掉即可。
+
+</details>
 
 ### 从源码运行
 

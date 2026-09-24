@@ -37,7 +37,8 @@ Allow other applications on this computer to communicate with Zotero*; Anki with
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159); Obsidian 1.12+ with its CLI enabled; `PADDLEOCR_TOKEN` for cloud OCR;
 `jq`, `fzf`, ImageMagick and kitty for search.
 
-### Arch Linux
+<details>
+<summary><b>Arch Linux</b> (AUR)</summary>
 
 [`linux-recall-git`](https://aur.archlinux.org/packages/linux-recall-git) is in the AUR.
 It builds from the latest commit and pulls in its dependencies from pacman (`python-rapidocr` also comes from the AUR),
@@ -52,6 +53,28 @@ source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / l
 
 The search tools are optional dependencies: `pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`.
 With the package, drop `uv run` from the commands below.
+
+</details>
+
+<details>
+<summary><b>Debian / Ubuntu</b> (.deb)</summary>
+
+Each [release](https://github.com/junyixu/linux_recall/releases/latest) has an amd64 `.deb` for distros with Plasma 6:
+Debian 13, Kubuntu 25.04+, KDE neon. Debian does not package `onnxruntime` or `rapidocr`,
+so the package bundles its own Python and dependencies under `/usr/lib/linux-recall` (about 500 MB installed, mostly OpenCV and ONNX Runtime).
+
+```sh
+sudo apt install ./linux-recall_*_amd64.deb     # the file downloaded from the release
+linux-recall-install-hotkey                     # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
+systemctl --user enable --now linux-recall      # optional: capture every minute
+source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / lr-highlight (lrf is in /usr/bin)
+```
+
+`jq`, `fzf`, `imagemagick`, `kitty` and `plasma-browser-integration` are recommended and installed by default;
+`lrf` highlights matches with ImageMagick 7 (`magick`), which Ubuntu 24.04 and older lack.
+With the package, drop `uv run` from the commands below.
+
+</details>
 
 ### From source
 

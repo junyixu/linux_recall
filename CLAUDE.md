@@ -34,6 +34,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - 测试时用 `--data-dir` 指向临时目录，不要往真实数据目录里写测试截图；daemon 测试会往真实的 `~/.cache/linux_recall/daemon.jsonl` 追加记录，测完要清理
 - `systemd/linux-recall.service` 的 `ExecStart` 是 AUR 包的 `/usr/bin/linux-recall-daemon`；源码运行时用 `systemd/uv.conf` 这个 drop-in 改成 `.venv` 里的（用 `%h` 表示家目录，仓库是公开的，不写死 `/home/junyi`）。`~/.config/systemd/user/` 里的 unit 和 drop-in 都是**拷贝**，不是软链接：改了仓库里的要重新 `cp`，再 `systemctl --user daemon-reload`
 - `scripts/install-hotkey.sh` 在仓库里用 `.venv/bin/` 下的命令，装成 AUR 包（`/usr/bin/linux-recall-install-hotkey`）时用 PATH 里的
+- deb 包：推送 `v*` tag（必须和 `pyproject.toml` 的 `version` 一致）后，`.github/workflows/deb.yml` 跑 `scripts/build-deb.sh` 并建 GitHub Release。Debian 没有 `onnxruntime` / `rapidocr`，所以包里自带 uv 管理的 Python 和按 `uv.lock` 装的 venv（`/usr/lib/linux-recall`），RapidOCR 模型在构建时下载好。venv 里是绝对路径，脚本要 sudo 直接在 `/usr/lib/linux-recall` 构建，不要在本机跑；加了文件（脚本、unit 等）要同时改 `build-deb.sh` 和 AUR 的 PKGBUILD
 - 改了包名或 entry point 后要 `uv sync --reinstall-package linux-recall`，普通 `uv sync` 不会重建
 
 ## 命名与路径

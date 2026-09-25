@@ -24,10 +24,11 @@ https://github.com/user-attachments/assets/8ed5c7c4-f2be-433c-bbae-9699dce021f6
   - Anki: the card under review (or the Browse selection), with field text
   - Obsidian: vault, note, heading, tags, and the Markdown source lines visible on screen
   - InkyCap: notebox, note, and its title, date and tags (the note it last made active)
+  - Okular: document path, title, author, and **current page** of the active tab
   - kitty: the focused tab and window, its shell and foreground processes; the last command and its output (shell integration); for Neovim the open file, cursor and visible text; for Claude Code the session id, title and last prompt
   - Neovide: the same Neovim record as in kitty
 - **OCR**: PaddleOCR cloud API (PP-OCRv6, Chinese + English), falling back to local RapidOCR on timeout or error
-- **Search**: `jq` recipes and `lrf`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page / Anki card / Obsidian note / Neovim file / kitty window
+- **Search**: `jq` recipes and `lrf`, an fzf picker with the matching line boxed in red on the screenshot (rendered inline in kitty), and `ctrl-o` to reopen the URL / PDF page (Zotero or Okular) / Anki card / Obsidian note / Neovim file / kitty window
 - **Click to Do**: `Meta+Alt+C` turns the active window into a page where the text in the screenshot is selectable word by word
 
 ## Install
@@ -137,8 +138,9 @@ flowchart LR
     C -->|Zotero| Z["Zotero Local API<br/>+ reader state → page"]
     C -->|Anki| A["AnkiConnect<br/>current card"]
     C -->|Obsidian| M["obsidian eval<br/>note + visible lines"]
+    C -->|Okular| P["org.kde.okular D-Bus<br/>document + page"]
     C -->|kitty| N["kitten @ ls → shell → nvim<br/>current file + cursor"]
-    B & Z & A & M & N & C --> D{"daemon only:<br/>same app and dHash ≥ 0.95?"}
+    B & Z & A & M & P & N & C --> D{"daemon only:<br/>same app and dHash ≥ 0.95?"}
     D -->|yes| X["drop"]
     D -->|no| W["save downscaled WebP + JSON"]
     W --> O["OCR the full-res original<br/>cloud → local fallback"]
@@ -190,6 +192,14 @@ While reviewing, `guiCurrentCard` + `cardsInfo` give the card, note, deck and fi
 `guiSelectedNotes` gives the selection. Fields are stored as plain text, so card content is searchable.
 `ctrl-o` calls `guiBrowse cid:<card>` and `guiSelectCard`, then raises the Browse window with `kdotool`,
 because KWin's focus-stealing prevention blocks Anki from raising an already-open window itself.
+
+### Okular: its own D-Bus interface
+
+Each Okular process owns `org.kde.okular-<pid>` (the pid KWin reports), and every document tab is an object at
+`/okular`, `/okular2`, … answering `currentDocument`, `currentPage`, `pages` and `documentMetaData`. Nothing marks
+the active tab, so, as with browser tabs, the one whose title or file name equals the window caption wins
+(`match: "ambiguous"` when several do). A handful of D-Bus calls take about 2 ms.
+`ctrl-o` runs `okular --page N <file>`.
 
 ### Obsidian: the official CLI
 
@@ -313,7 +323,7 @@ lrf lunar                  # fzf: app + time │ matching line, keyword in red �
                            #   preview: screenshot with the match boxed (kitty), enter: print the JSON path,
                            #   ctrl-f: print the file open in Neovim (app shows as kitty(neovim)),
                            #   ctrl-t: print the InkyCap note's path, ctrl-s: open image,
-                           #   ctrl-o: reopen the URL / Zotero page / Anki card / Neovim file and line / kitty window
+                           #   ctrl-o: reopen the URL / Zotero or Okular page / Anki card / Neovim file and line / kitty window
 lr-search 截图保存          # plain TSV: time, app, URL or title, image path
 lr-highlight <capture.json> lunar   # PNG with matching lines boxed
 ```
@@ -334,7 +344,7 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
 
 ```jsonc
 {
-  "schema_version": 11,
+  "schema_version": 13,
   "captured_at": "2026-09-23T20:51:42.366+02:00",
   "trigger": "timer",                                   // or "hotkey"
   "screenshot": {"file": "….webp", "mode": "window", "width": 1969, "height": 1068,
@@ -361,6 +371,8 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
                "open_link": "obsidian://open?vault=Notes&file=diary/2026/09/2026-09-23.md"},
   "inkycap": {"notebox": "notes", "file": "reading/attention.typ", "path": "/home/…/notes/reading/attention.typ",
               "title": "…", "date": "2026-09-24", "zid": 20260924152701, "tags": ["ml"], "aliases": []},
+  "okular":  {"path": "/home/…/paper.pdf", "file": "paper.pdf", "title": "…", "author": "…", "page": 12, "pages": 134,
+              "tabs": 1, "match": "exact"},
   "ocr":     {"engine": "paddleocr-cloud PP-OCRv6", "fallback_reason": null,
               "text": "…", "lines": [{"text": "…", "score": 0.99, "box": [[x, y], …]}]}
 }

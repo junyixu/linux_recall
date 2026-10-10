@@ -9,10 +9,10 @@ on ``~/WorkSpace/anki_agent/anki_ocr_paddle.py``.
 
 Local: RapidOCR (PaddleOCR models on OpenVINO if installed, else ONNX
 Runtime), used whenever the cloud misses its deadline or errors out — its
-queue can stall for minutes. It runs in a child process: the runtime keeps
-~400 MB after the first run, which the long-running daemon would otherwise
-hold for good, and the caller can kill it mid-run (``stop``). RapidOCR is
-optional (the AUR package only suggests it); without it, only the cloud is
+queue can stall for minutes. It runs in a child process (``LocalOcr``),
+which the daemon's queue keeps across consecutive shots and kills once it
+goes idle, or mid-shot (``stop``), so the memory comes back at once. RapidOCR
+is optional (the AUR package only suggests it); without it, only the cloud is
 tried.
 
 ``cloud_blocked`` says when the cloud mustn't be used at all: ``--cloud-ocr
@@ -165,61 +165,98 @@ class Interrupted(Exception):
     """Local OCR was stopped by the caller's ``stop()`` before it finished."""
 
 
-def _local(image_path: Path, max_side: int, threads: int, stop: Callable[[], bool] | None) -> list[Line]:
-    ctx = multiprocessing.get_context("spawn")
-    receiver, sender = ctx.Pipe(duplex=False)
-    child = ctx.Process(target=_local_child, args=(sender, image_path, max_side, threads))
-    child.start()
-    sender.close()  # only the child's end stays open, so its death reads as EOF
-    try:
-        # poll() is also true at EOF; recv() then raises EOFError (child died, e.g. OOM-killed)
-        while not receiver.poll(0.5):
-            if stop and stop():
-                raise Interrupted
-        ok, result = receiver.recv()
-    finally:
-        child.kill()  # stopped: frees ONNX Runtime's memory at once; finished: a no-op
-        child.join()
-        receiver.close()
-    if not ok:
-        raise RuntimeError(result)
-    return result
+class LocalOcr:
+    """RapidOCR in a spawned child that serves shot after shot, so a run of queued shots
+    loads the runtime and models once (~0.8 s per shot). ``close()`` kills it, and so does
+    a ``stop()`` that turns true mid-shot; the next ``run()`` starts a fresh one."""
+
+    # its memory levels off at ~4-5 GB (runtime buffers, malloc's free lists); restart it now and then anyway
+    RECYCLE_AFTER = 100
+
+    def __init__(self, threads: int) -> None:
+        self.threads = threads
+        self.child: multiprocessing.process.BaseProcess | None = None
+        self.conn: Connection | None = None
+        self.shots = 0
+
+    def run(self, image_path: Path, stop: Callable[[], bool] | None = None) -> list[Line]:
+        if self.child and (not self.child.is_alive() or self.shots >= self.RECYCLE_AFTER):
+            self.close()
+        if not self.child:
+            ctx = multiprocessing.get_context("spawn")
+            self.conn, child_end = ctx.Pipe()
+            # daemon: killed, not waited for, when the daemon process exits
+            self.child = ctx.Process(target=_local_worker, args=(child_end, self.threads), daemon=True)
+            self.child.start()
+            child_end.close()  # only the child holds it now, so its death reads as EOF
+        assert self.conn
+        try:
+            self.conn.send(str(image_path))
+            # poll() is also true at EOF; recv() then raises EOFError (child died, e.g. OOM-killed)
+            while not self.conn.poll(0.5):
+                if stop and stop():
+                    raise Interrupted
+            ok, result = self.conn.recv()
+        except BaseException:
+            self.close()
+            raise
+        self.shots += 1
+        if not ok:
+            raise RuntimeError(result)
+        return result
+
+    def close(self) -> None:
+        """Kill the child, freeing its memory at once; a no-op when none is running."""
+        if self.child and self.conn:
+            self.child.kill()
+            self.child.join()
+            self.conn.close()
+        self.child, self.conn, self.shots = None, None, 0
+
+    def __enter__(self) -> "LocalOcr":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
 
-def _local_child(sender: Connection, image_path: Path, max_side: int, threads: int) -> None:
-    try:
-        sender.send((True, _local_in_process(image_path, max_side, threads)))
-    except Exception as e:
-        sender.send((False, f"{type(e).__name__}: {e}"))
-
-
-def _local_in_process(image_path: Path, max_side: int, threads: int) -> list[Line]:
+def _local_worker(conn: Connection, threads: int) -> None:
     from rapidocr import EngineType, RapidOCR  # heavy import, only needed on fallback
 
     backend = EngineType(LOCAL_BACKEND)  # OpenVINO's model list names the same .onnx files: no download
     engine = RapidOCR(params={
-        # RapidOCR downscales to 2000px by default, blurring small text on HiDPI crops
-        "Global.max_side_len": max_side, "Global.log_level": "warning",
+        # RapidOCR downscales to 2000px by default, blurring small text on HiDPI crops; it only
+        # ever shrinks, and run_ocr never passes more than MAX_SIDE, so images keep their size
+        "Global.max_side_len": MAX_SIDE, "Global.log_level": "warning",
         "Det.engine_type": backend, "Cls.engine_type": backend, "Rec.engine_type": backend,
         # -1 = all cores; each backend reads only its own key
         "EngineConfig.openvino.inference_num_threads": threads,
         "EngineConfig.onnxruntime.intra_op_num_threads": threads,
     })
-    result = engine(str(image_path))
-    if result.txts is None:
-        return []
-    return [(t, s, b.tolist()) for t, s, b in zip(result.txts, result.scores, result.boxes)]
+    while True:
+        try:
+            image_path = conn.recv()
+        except EOFError:  # the parent closed its end or died
+            return
+        try:
+            result = engine(image_path)
+            lines = [] if result.txts is None else [(t, s, b.tolist()) for t, s, b in
+                                                    zip(result.txts, result.scores, result.boxes)]
+            conn.send((True, lines))
+        except Exception as e:
+            conn.send((False, f"{type(e).__name__}: {e}"))
 
 
 def run_ocr(image_path: Path, region: tuple[int, int, int, int] | None = None,
             cloud_timeout: float = CLOUD_TIMEOUT, engines: Sequence[str] = ("cloud", "local"),
             local_threads: int = -1, fallback_reason: str | None = None,
-            stop: Callable[[], bool] | None = None) -> dict[str, Any]:
+            stop: Callable[[], bool] | None = None, worker: LocalOcr | None = None) -> dict[str, Any]:
     """OCR ``region`` (left, top, right, bottom in screenshot pixels) of the image, or all of it.
 
     ``engines`` are tried in order; only the last one's failure is raised.
     ``fallback_reason`` is recorded when the caller already skipped the cloud.
-    Local OCR raises ``Interrupted`` within 0.5 s once ``stop()`` returns true.
+    Local OCR raises ``Interrupted`` within 0.5 s once ``stop()`` returns true. It runs in
+    ``worker`` if given (``local_threads`` is then the worker's), else in a one-off child.
     Returned boxes are in full-screenshot pixels, not relative to the region.
     """
     engines = [e for e in engines if e != "local" or HAS_LOCAL]
@@ -249,7 +286,11 @@ def run_ocr(image_path: Path, region: tuple[int, int, int, int] | None = None,
                     raw = _cloud(upload, cloud_timeout)
                     engine = f"paddleocr-cloud {MODEL}"
                 else:
-                    raw = _local(upload, max(upload_size), local_threads, stop)
+                    if worker:
+                        raw = worker.run(upload, stop)
+                    else:
+                        with LocalOcr(local_threads) as once:
+                            raw = once.run(upload, stop)
                     engine = f"rapidocr {version('rapidocr')} {LOCAL_BACKEND}"
                 break
             except Exception as e:

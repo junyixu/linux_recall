@@ -223,9 +223,9 @@ OCR 在后台做，不会拖慢截图：
 - daemon 的 `--ocr-timeout` 默认 180 秒（快捷键仍是 60 秒）
 - 云端失败后暂停调用 1 分钟，之后每次失败翻倍，最多 30 分钟；暂停结束后的第一张就是试探。没有 `PADDLEOCR_TOKEN` 或 token 被拒（401/403）时直接暂停 30 分钟，并弹一次通知
 - 连着计量网络（NetworkManager 的 `Metered` 属性；安卓手机热点会自己声明）时完全不用云端：daemon 和快捷键的 `--cloud-ocr` 默认都是 `unmetered`，这时快捷键截的图也进同一个队列。`always` 不管是否计量，`never` 只用本地。NetworkManager 没认出来的连接可以手动标记：`nmcli connection modify <连接名> connection.metered yes`
-- 不用云端时，只在**锁屏并且接着电源**时用本地 RapidOCR 识别（云端只是暂时出错时，先等它一小时）。一解锁，0.5 秒内就停下，正在识别的那张留在队列里，下次再做
+- 不用云端时，只在**锁屏并且接着电源**时用本地 RapidOCR 识别（云端只是暂时出错时，先等它一小时）。锁屏期间由同一个子进程一张接一张地识别，模型只加载一次（不然每张要多花约 0.8 秒）；一解锁，0.5 秒内就结束这个子进程，正在识别的那张留在队列里，下次再做；队列空了也会结束它
 
-资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 1.3 GB 内存，放在子进程里跑，跑完（或解锁时被停下）内存就释放。本地 OCR 装了 OpenVINO 就用它，没装用 ONNX Runtime，模型相同、识别结果一样，但 OpenVINO 省得多：4 个线程每张 3.3 秒、8.6 秒 CPU，ONNX Runtime 要 5.3 秒、22 秒 CPU（OpenVINO 2/4/8 个线程分别是 4.0/3.3/2.5 秒、7.1/8.6/11.3 秒 CPU）。OpenVINO 的 GPU 插件（Xe2 核显）并不更快，默认的 f16 还会让约 5% 的行识别得不一样，所以只用 CPU。忙的一天约 600 张，锁屏后约半小时就能识别完。
+资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 放在子进程里跑，用 OpenVINO 时约占 3–5 GB 内存（ONNX Runtime 约 1.3–1.9 GB），子进程一结束内存就全部释放。本地 OCR 装了 OpenVINO 就用它，没装用 ONNX Runtime，模型相同、识别结果一样，但 OpenVINO 省得多：4 个线程每张 3.3 秒、8.6 秒 CPU，ONNX Runtime 要 5.3 秒、22 秒 CPU（OpenVINO 2/4/8 个线程分别是 4.0/3.3/2.5 秒、7.1/8.6/11.3 秒 CPU）。OpenVINO 的 GPU 插件（Xe2 核显）并不更快，默认的 f16 还会让约 5% 的行识别得不一样，所以只用 CPU。忙的一天约 600 张，锁屏后约半小时就能识别完。
 
 ```sh
 systemctl --user enable --now linux-recall   # AUR 包：unit 已经装好

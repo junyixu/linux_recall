@@ -275,9 +275,11 @@ of the user's way:
   shots then join the same queue; `always` ignores metering and `never` keeps OCR local. To mark a
   connection NetworkManager doesn't recognize: `nmcli connection modify <name> connection.metered yes`.
 - Without the cloud, local OCR only runs while the screen is locked and the laptop is plugged in (a merely
-  failing cloud first gets an hour to come back). Unlocking kills the running OCR within 0.5 s, and that
-  shot stays queued. It uses 4 threads: per 3840×2080 window, OpenVINO on 2/4/8 threads took 4.0/3.3/2.5 s
-  and 7.1/8.6/11.3 s of CPU, so a busy day's ~600 shots need about half an hour of a locked night.
+  failing cloud first gets an hour to come back). One child process OCRs shot after shot, so the runtime and
+  models load once instead of costing ~0.8 s per shot; unlocking kills it within 0.5 s (that shot stays
+  queued), and so does an empty queue. It uses 4 threads: per 3840×2080 window, OpenVINO on 2/4/8 threads
+  took 4.0/3.3/2.5 s and 7.1/8.6/11.3 s of CPU, so a busy day's ~600 shots need about half an hour of a
+  locked night.
 
 The JSON is written twice, atomically: right after the screenshot (`"ocr": null`) and again after OCR,
 so a failed OCR never loses the capture.

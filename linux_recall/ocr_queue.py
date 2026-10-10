@@ -15,9 +15,11 @@ isn't tried at all, and hotkey captures queue their originals here too.
 
 Without the cloud, local RapidOCR (~9 s of CPU per 3840x2080 window) only
 runs while the screen is locked and the laptop is on mains power, and only if
-RapidOCR is installed; unlocking kills the running OCR within 0.5 s and the
-shot stays queued. A merely failing cloud first gets ``LOCAL_AFTER`` to
-recover; a metered or disabled one won't, so its shots go local right away.
+RapidOCR is installed. One child process OCRs shot after shot, so the models
+load once; unlocking kills it within 0.5 s and the shot stays queued, and it
+is also killed whenever the queue goes idle. A merely failing cloud first
+gets ``LOCAL_AFTER`` to recover; a metered or disabled one won't, so its
+shots go local right away.
 """
 
 import json
@@ -32,7 +34,7 @@ from jeepney import DBusAddress, new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
 from linux_recall.capture import add_ocr, notify
-from linux_recall.ocr import HAS_LOCAL, Interrupted, cloud_blocked, online
+from linux_recall.ocr import HAS_LOCAL, Interrupted, LocalOcr, cloud_blocked, online
 from linux_recall.paths import CACHE_DIR
 
 log = logging.getLogger("linux_recall")
@@ -129,6 +131,7 @@ class OcrQueue:
         self.cloud_timeout = cloud_timeout
         self.cloud = cloud  # one of ocr.CLOUD_POLICIES
         self.breaker = Breaker()
+        self.worker = LocalOcr(LOCAL_THREADS)
         self.wake = threading.Event()
         self.notified = False
         PENDING_DIR.mkdir(parents=True, exist_ok=True)
@@ -150,6 +153,7 @@ class OcrQueue:
                 log.exception("ocr queue step failed")
                 busy = False
             if not busy:
+                self.worker.close()  # nothing to OCR locally right now: free its memory
                 self.wake.wait(60)
                 self.wake.clear()
 
@@ -178,7 +182,7 @@ class OcrQueue:
         region = spec["region"] and tuple(spec["region"])
         try:
             if local:
-                add_ocr(json_path, original, region, engines=("local",), local_threads=LOCAL_THREADS,
+                add_ocr(json_path, original, region, engines=("local",), worker=self.worker,
                         fallback_reason=local, stop=_unlocked)
             else:
                 add_ocr(json_path, original, region, cloud_timeout=self.cloud_timeout, engines=("cloud",))

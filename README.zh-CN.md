@@ -86,6 +86,7 @@ echo 'PADDLEOCR_TOKEN=...' >> ~/.config/environment.d/linux-recall.conf
   uv run linux-recall-capture --mode fullscreen   # 截整个桌面，只 OCR 活动窗口
   uv run linux-recall-capture --full-res          # 保留 HiDPI 原始分辨率，不缩小
   uv run linux-recall-capture --ocr-timeout 30    # 云端 OCR 最多等 30 秒，超时改用本地
+  uv run linux-recall-capture --cloud-ocr always  # 计量网络（手机热点）上也用云端，默认是排队等锁屏
   uv run linux-recall-capture --no-ocr            # 不做 OCR
   ```
 
@@ -216,12 +217,13 @@ JSON 的主要字段：
 
 OCR 在后台做，不会拖慢截图：
 
-- 保存时 `ocr` 先是 `null`，原始分辨率的图放进 `~/.cache/linux_recall/pending/`，后台线程从最新的一张开始调用云端 OCR，识别完写回 JSON 并删掉原图。daemon 重启后接着识别；最多留 200 张，超出就删最旧的（那张的 `ocr` 保持 `null`）
+- 保存时 `ocr` 先是 `null`，原始分辨率的图（约 0.35 MB，是保存下来那张的 3 倍左右）放进 `~/.cache/linux_recall/pending/`，后台线程从最新的一张开始调用云端 OCR，识别完写回 JSON 并删掉原图。daemon 重启后接着识别；最多留 1500 张，超出就删最旧的（那张的 `ocr` 保持 `null`）
 - daemon 的 `--ocr-timeout` 默认 180 秒（快捷键仍是 60 秒）
 - 云端失败后暂停调用 1 分钟，之后每次失败翻倍，最多 30 分钟；暂停结束后的第一张就是试探。没有 `PADDLEOCR_TOKEN` 或 token 被拒（401/403）时直接暂停 30 分钟，并弹一次通知
-- 云端不可用时，等了一小时以上的截图才会用本地 RapidOCR（限 2 个线程）识别，而且要满足：看起来没人在用（锁屏，或者连续 3 轮画面没变且 CPU 压力低）并且接着电源
+- 连着计量网络（NetworkManager 的 `Metered` 属性；安卓手机热点会自己声明）时完全不用云端：daemon 和快捷键的 `--cloud-ocr` 默认都是 `unmetered`，这时快捷键截的图也进同一个队列。`always` 不管是否计量，`never` 只用本地。NetworkManager 没认出来的连接可以手动标记：`nmcli connection modify <连接名> connection.metered yes`
+- 不用云端时，只在**锁屏并且接着电源**时用本地 RapidOCR 识别（云端只是暂时出错时，先等它一小时）。一解锁，0.5 秒内就停下，正在识别的那张留在队列里，下次再做
 
-资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 20–40 秒 CPU、1.3 GB 内存，所以放在子进程里跑，跑完内存就释放。
+资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 1.3 GB 内存，放在子进程里跑，跑完（或解锁时被停下）内存就释放。本地 OCR 用 4 个线程：2/4/8 个线程每张分别要 8.6/5.3/4.2 秒、17.6/22.3/29.0 秒 CPU，4 个以上多出来的核心基本只是在多耗 CPU。忙的一天约 600 张，锁屏后不到一小时就能识别完。
 
 ```sh
 systemctl --user enable --now linux-recall   # AUR 包：unit 已经装好
@@ -468,4 +470,4 @@ lr-highlight 2026-09-23/20260923-205142-366.json lunar && xdg-open /tmp/lr-highl
 - `CAPTIONS`（窗口标题包含）：`Private Browsing`（Firefox 隐私窗口）、`(Incognito)`、`(Private)`、`[InPrivate]`
 - `SITES`（活动标签页网址的域名，包括子域名）：`boc.cn`（中国银行）。网址来自 Plasma Browser Integration，所以浏览器扩展没连上时拿不到网址，也就不会排除
 
-要加别的程序，把它的 `desktop_file` 加进 `APPS`（用 `uv run python -m linux_recall.kwin` 查），改完 `systemctl --user restart linux-recall`。只检查活动窗口：`--mode fullscreen` 截的整个桌面里仍然可能有别的窗口；加网站就把域名加进 `SITES`。不想上传到云端时，就不要设置 `PADDLEOCR_TOKEN`，这样只用本地 OCR。注意快捷键启动的程序从 `~/.config/environment.d/` 读取这个变量，只在终端里 `unset` 对快捷键无效；单次命令行运行可以用 `env -u PADDLEOCR_TOKEN uv run linux-recall-capture`。
+要加别的程序，把它的 `desktop_file` 加进 `APPS`（用 `uv run python -m linux_recall.kwin` 查），改完 `systemctl --user restart linux-recall`。只检查活动窗口：`--mode fullscreen` 截的整个桌面里仍然可能有别的窗口；加网站就把域名加进 `SITES`。不想上传到云端时，就不要设置 `PADDLEOCR_TOKEN`，这样只用本地 OCR；daemon 也可以加 `--cloud-ocr never`，截图排队，只在锁屏时用本地 OCR。注意快捷键启动的程序从 `~/.config/environment.d/` 读取这个变量，只在终端里 `unset` 对快捷键无效；单次命令行运行可以用 `env -u PADDLEOCR_TOKEN uv run linux-recall-capture`。

@@ -251,16 +251,23 @@ window is gone, `ctrl-o` runs `claude --resume <session id>` in a new tab.
   after the first run; a 3840×2080 window costs ~30 s of CPU.
 
 On a CPU budget, cloud OCR is almost free (~0.1 s of CPU; the 5–60 s is upload and queueing) and the
-screenshot itself is ~0.6 s, mostly Spectacle. So the daemon never blocks on OCR and avoids local OCR:
+screenshot itself is ~0.6 s, mostly Spectacle. So the daemon never blocks on OCR and keeps local OCR out
+of the user's way:
 
-- Kept shots are saved with `"ocr": null` and their full-resolution original goes to
-  `~/.cache/linux_recall/pending/`; a background thread OCRs the newest one (cloud only, `--ocr-timeout`
-  defaults to 180 s there) and fills in the JSON. The queue survives restarts and keeps at most 200 originals.
+- Kept shots are saved with `"ocr": null` and their full-resolution original (~0.35 MB, about 3× the saved
+  copy) goes to `~/.cache/linux_recall/pending/`; a background thread OCRs the newest one (cloud only,
+  `--ocr-timeout` defaults to 180 s there) and fills in the JSON. The queue survives restarts and keeps at
+  most 1500 originals.
 - A cloud failure pauses cloud calls for 1 min, doubling up to 30 min; the next shot after the pause
   probes whether it's back. A missing or rejected token pauses 30 min and sends one notification.
-- While the cloud is down, local OCR (2 threads) only takes shots that have waited an hour, and only when
-  the user looks idle (screen locked, or three similar shots in a row with low CPU pressure) and the
-  laptop is plugged in.
+- On a metered connection (NetworkManager's `Metered` property; Android phone hotspots announce it) the
+  cloud isn't used at all. `--cloud-ocr unmetered` is the default for both the daemon and the hotkey, whose
+  shots then join the same queue; `always` ignores metering and `never` keeps OCR local. To mark a
+  connection NetworkManager doesn't recognize: `nmcli connection modify <name> connection.metered yes`.
+- Without the cloud, local OCR only runs while the screen is locked and the laptop is plugged in (a merely
+  failing cloud first gets an hour to come back). Unlocking kills the running OCR within 0.5 s, and that
+  shot stays queued. It uses 4 threads: per 3840×2080 window, 2/4/8 threads took 8.6/5.3/4.2 s and
+  17.6/22.3/29.0 s of CPU, so a busy day's ~600 shots need under an hour of a locked night.
 
 The JSON is written twice, atomically: right after the screenshot (`"ocr": null`) and again after OCR,
 so a failed OCR never loses the capture.

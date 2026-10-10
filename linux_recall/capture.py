@@ -37,7 +37,7 @@ from linux_recall.apps.okular import get_open_document, is_okular
 from linux_recall.apps.zotero import get_open_item, is_zotero
 from linux_recall.exclude import excluded
 from linux_recall.kwin import get_kwin_state
-from linux_recall.ocr import CLOUD_TIMEOUT, run_ocr
+from linux_recall.ocr import CLOUD_POLICIES, CLOUD_TIMEOUT, cloud_blocked, run_ocr
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 from linux_recall.similarity import dhash
@@ -280,9 +280,17 @@ def add_ocr(json_path: Path, original: Path, region: tuple[int, int, int, int] |
 
 
 def capture(data_dir: Path, mode: str, ocr: bool, trigger: str, ocr_timeout: float,
-            full_res: bool = False) -> Path:
+            full_res: bool = False, cloud: str = "unmetered") -> Path:
+    from linux_recall.ocr_queue import enqueue  # not at the top: ocr_queue imports this module
+
     shot = take(mode)
     try:
+        # no cloud now (phone hotspot): the daemon OCRs the original later, locally while the screen is locked
+        if ocr and ocr_region_known(shot) and (reason := cloud_blocked(cloud)):
+            json_path = save(shot, data_dir, trigger, False, ocr_timeout, full_res)
+            enqueue(shot.image, json_path, shot.region)
+            log.info("OCR queued (%s)", reason)
+            return json_path
         return save(shot, data_dir, trigger, ocr, ocr_timeout, full_res)
     finally:
         shot.image.unlink(missing_ok=True)
@@ -298,6 +306,9 @@ def main() -> None:
     parser.add_argument("--no-ocr", dest="ocr", action="store_false")
     parser.add_argument("--ocr-timeout", type=float, default=CLOUD_TIMEOUT,
                         help="seconds to wait for cloud OCR before falling back to local")
+    parser.add_argument("--cloud-ocr", choices=CLOUD_POLICIES, default="unmetered",
+                        help="unmetered: on a metered connection, queue the shot for the daemon's "
+                             "local OCR (while the screen is locked) instead of uploading it")
     parser.add_argument("--no-notify", dest="notify", action="store_false")
     parser.add_argument("--trigger", default="hotkey", help="recorded as-is in the JSON")
     args = parser.parse_args()
@@ -309,7 +320,8 @@ def main() -> None:
         handlers=[logging.FileHandler(CACHE_DIR / "capture.log"), logging.StreamHandler()],
     )
     try:
-        json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger, args.ocr_timeout, args.full_res)
+        json_path = capture(args.data_dir, args.mode, args.ocr, args.trigger, args.ocr_timeout, args.full_res,
+                            args.cloud_ocr)
     except Excluded as e:
         log.info("excluded window (%s), not captured", e)
         if args.notify:

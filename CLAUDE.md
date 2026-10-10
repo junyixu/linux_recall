@@ -16,8 +16,8 @@
 
 ```sh
 uv run linux-recall-capture [--mode window|fullscreen|monitor] [--full-res] [--no-ocr] \
-    [--ocr-timeout 60] [--no-notify] [--trigger test] [--data-dir DIR]   # 截一次（快捷键跑的就是它）
-uv run linux-recall-daemon --interval 60 --threshold 0.95 [-v]           # 定时截图 + 去重
+    [--ocr-timeout 60] [--cloud-ocr unmetered|always|never] [--no-notify] [--trigger test] [--data-dir DIR]   # 截一次（快捷键跑的就是它）
+uv run linux-recall-daemon --interval 60 --threshold 0.95 [--cloud-ocr unmetered|always|never] [-v]  # 定时截图 + 去重
 uv run linux-recall-click [--timeout 60]                                 # Click to Do（快捷键 Meta+Alt+C）
 uv run linux-recall-usage [--today] [--daily] [--by detail] [--json]     # 从 daemon.jsonl 统计各程序用了多长时间
 uv run python -m linux_recall.kwin            # 打印活动窗口和各显示器信息
@@ -48,7 +48,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
   - `daemon.jsonl`：daemon 每轮的决定（keep/skip、相似度），用来统计去重效果
   - `preview/`：`lrf` 生成的高亮预览图
   - 截图过程中的原始分辨率图片、KWin 临时脚本（用完即删）
-  - `pending/`：daemon 等待后台 OCR 的原图（`<id>.webp` + `<id>.job.json`），识别完即删，最多 200 张
+  - `pending/`：daemon 等待后台 OCR 的原图（`<id>.webp` + `<id>.job.json`），识别完即删，最多 1500 张（每张约 0.35 MB）；快捷键截图不用云端时也放进来
 - 快捷键 desktop 文件：`~/.local/share/applications/net.local.linux-recall-{capture,click}.desktop`
 - Click to Do 的页面和截图：`~/.cache/linux_recall/clicktodo/`（一天后自动删除），日志 `~/.cache/linux_recall/clicktodo.log`
 
@@ -56,10 +56,10 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 
 - `capture.py`：`take()` 和 `save()`，快捷键入口 `main()`
   - `take()`：活动窗口（约 50 ms）→ 浏览器 URL → 检查排除名单 → 截图到缓存目录（`window` 模式约 0.5 s）→ 其他应用上下文 → 计算 dHash 和屏幕缩放比
-  - `save()`：把截图按屏幕缩放比缩小到逻辑分辨率后存进数据目录（`--full-res` 不缩小），写 JSON；然后用**原始分辨率**的图做 OCR，把坐标换算到保存的图片上，再写一次 JSON（`add_ocr()`，后台队列也用它）。原图由调用方处理：快捷键的 `capture()` 删掉，daemon 移进 `pending/`。缩小后再 OCR，kitty 窗口会从 105 行掉到 42 行，所以一定要先用原图识别
-- `daemon.py`：每 `--interval` 秒 `take()` 一次；如果和上一次保存的是同一个程序，而且 dHash 相似度 ≥ `--threshold`，就丢弃，否则 `save(ocr=False)` 后把原图交给 `ocr_queue`。换了程序一定保存；锁屏时跳过（`org.freedesktop.ScreenSaver.GetActive`）。每轮写一行日志，并往 `daemon.jsonl` 追加一条记录，再告诉队列用户是否空闲（锁屏，或连续 3 轮 `similar` 且 PSI `/proc/pressure/cpu` avg60 < 10）。收到 SIGTERM 会先跑完当前这一轮
+  - `save()`：把截图按屏幕缩放比缩小到逻辑分辨率后存进数据目录（`--full-res` 不缩小），写 JSON；然后用**原始分辨率**的图做 OCR，把坐标换算到保存的图片上，再写一次 JSON（`add_ocr()`，后台队列也用它）。原图由调用方处理：快捷键的 `capture()` 删掉，daemon 移进 `pending/`。快捷键在 `cloud_blocked()` 时（计量网络等）不做 OCR，用 `ocr_queue.enqueue()` 把原图交给 daemon 的队列（`ocr_queue` 导入了 `capture`，所以在函数里导入）。缩小后再 OCR，kitty 窗口会从 105 行掉到 42 行，所以一定要先用原图识别
+- `daemon.py`：每 `--interval` 秒 `take()` 一次；如果和上一次保存的是同一个程序，而且 dHash 相似度 ≥ `--threshold`，就丢弃，否则 `save(ocr=False)` 后把原图交给 `ocr_queue`。换了程序一定保存；锁屏时跳过（`org.freedesktop.ScreenSaver.GetActive`）。每轮写一行日志，并往 `daemon.jsonl` 追加一条记录，再叫醒 OCR 队列（重新检查锁屏、网络、熔断）。收到 SIGTERM 会先跑完当前这一轮
 - `usage.py`：读 `daemon.jsonl`，每一轮算到下一轮为止（最多 2 倍间隔中位数），按 `app` 累加；`locked` 单独列、`excluded` 合成一类（这时 `app` 是排除原因）。`--by detail` 读 keep 那轮的截图 JSON 取浏览器域名 / kitty 前台程序，`similar` 的轮次沿用同一程序上一张
-- `ocr_queue.py`：daemon 的后台 OCR 线程。只用云端（`--ocr-timeout` 默认 180 秒），从最新的一张开始；失败就熔断（暂停 1 分钟，每次翻倍，最多 30 分钟；缺 token / 401 / 403 直接 30 分钟并 `notify-send` 一次），NetworkManager `Connectivity` 不是 4 时不试。云端不可用时，排队超过 1 小时的截图在空闲且接电源（`/sys/class/power_supply` 的 Mains）时用本地 OCR（2 线程）。线程是 daemon 线程，停止时直接丢下，没做完的留在 `pending/`，下次启动接着做
+- `ocr_queue.py`：daemon 的后台 OCR 线程。只用云端（`--ocr-timeout` 默认 180 秒），从最新的一张开始；失败就熔断（暂停 1 分钟，每次翻倍，最多 30 分钟；缺 token / 401 / 403 直接 30 分钟并 `notify-send` 一次），NetworkManager `Connectivity` 不是 4 时不试，`--cloud-ocr unmetered`（默认）时计量网络上也不试。不用云端时，只在锁屏（`screen_locked()`，daemon 也用它）且接电源（`/sys/class/power_supply` 的 Mains）时用本地 OCR（4 线程；2/4/8 线程每张 8.6/5.3/4.2 s、17.6/22.3/29.0 CPU-s），`fallback_reason` 记为 `cloud_blocked()` 的原因；云端只是熔断时，截图要排队超过 1 小时才用本地。识别时每 0.5 s 查一次锁屏，解锁就 kill 子进程（`ocr.Interrupted`），这张留在队列里。线程是 daemon 线程，停止时直接丢下，没做完的留在 `pending/`，下次启动接着做
 - `exclude.py`：排除名单。`take()` 拿到 KWin 状态后、调用 spectacle 之前检查活动窗口（`APPS` 按 `desktop_file`，`CAPTIONS` 按标题子串，`SITES` 按活动标签 URL 的域名，含子域名；标题有歧义时任何一个候选标签命中都算；拿不到 URL 就不排除），命中就抛 `capture.Excluded`；daemon 记为 `skip` / `reason="excluded"`，快捷键弹通知 “Not captured” 后正常退出。Spectacle 自己也在名单里（框选界面是整个桌面的静止画面）
 - `similarity.py`：16×16 dHash，相似度 = 1 − 汉明距离 / 256。实测：完全相同 1.0，时钟跳一下 0.988，多一行字 0.977，多一段 0.93，滚动 300px 0.82，内容完全不同 0.5–0.73
 - `kwin.py`：`get_kwin_state()` 返回活动窗口和各显示器的几何信息。用 jeepney 往 `org.kde.KWin /Scripting` 加载一段临时 KWin 脚本，脚本读 `workspace.activeWindow`、`workspace.screens` 后用 `callDBus` 回调到我们的 unique bus name，用完就 unload（和 kdotool 同一个思路，但一次调用拿全所有字段）
@@ -74,7 +74,7 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 - kitty shell integration：`kitten @ ls` 的 `last_reported_cmdline` / `at_prompt` / `last_cmd_exit_status`；命令还在运行时 `last_cmd_output` 是到目前为止的输出，`last_cmd_exit_status` 是上一条命令的（过时的），所以只在 `at_prompt` 时记录。`ls` 里还有 `env`，不要记录
 - `apps/claude.py`：`~/.claude/sessions/<pid>.json`（session id、cwd、状态）+ 会话记录 `~/.claude/projects/*/<session id>.jsonl` 末尾 512 KB 里最新的 `ai-title` 和 `last-prompt`（会话记录可以有几十 MB，不要整个读）
 - `screenshot.py`：调用 spectacle。`window` 模式是 `-a -S`（`-S` 去掉约 250px 的透明阴影），`fullscreen` 是 `-f`；都加 `--new-instance`，否则快捷键和 daemon 同时截图时，第二次调用会被转发给第一个进程，`--output` 丢失。`window_region()` 把窗口的逻辑坐标换算成整桌面截图的像素：spectacle 用最高的缩放比（2）渲染整个桌面，所以 像素 = (逻辑坐标 − 桌面左上角) × 图宽 / 桌面逻辑宽度
-- `ocr.py`：`run_ocr(engines=("cloud", "local"))` 按顺序尝试。云端是 PaddleOCR API。`window` 模式直接上传 spectacle 的原 WebP（有损 VP8，约 0.6 MB；解码再存成 PNG 识别结果完全相同，文件却大 4 倍；JPEG 再压一次会丢 5–60% 的字）；`fullscreen` 模式裁出活动窗口存成 PNG 再上传。`--ocr-timeout`（快捷键默认 60 秒）限制整个云端过程，包括排队重试、每次上传和轮询；轮询每次最多 30 秒，上传不限（`sendall` 整个上传共用一个超时，服务器有时只有约 40 KB/s）。本地 RapidOCR 在 spawn 子进程里跑（ONNX Runtime 跑过一次后不释放约 400 MB），`local_threads` 限制线程数；spawn 会重新导入 `__main__`，测试脚本要有 `if __name__ == "__main__"`
+- `ocr.py`：`run_ocr(engines=("cloud", "local"))` 按顺序尝试。云端是 PaddleOCR API。`window` 模式直接上传 spectacle 的原 WebP（有损 VP8，约 0.6 MB；解码再存成 PNG 识别结果完全相同，文件却大 4 倍；JPEG 再压一次会丢 5–60% 的字）；`fullscreen` 模式裁出活动窗口存成 PNG 再上传。`--ocr-timeout`（快捷键默认 60 秒）限制整个云端过程，包括排队重试、每次上传和轮询；轮询每次最多 30 秒，上传不限（`sendall` 整个上传共用一个超时，服务器有时只有约 40 KB/s）。本地 RapidOCR 在 spawn 的 `Process` 里跑，结果经 `Pipe` 传回（ONNX Runtime 跑过一次后不释放约 400 MB；不用 `ProcessPoolExecutor`，因为要能在 `stop()` 为真时 kill，而 `kill_workers()` 要 3.14），`local_threads` 限制线程数；`cloud_blocked(policy)` 按 `CLOUD_POLICIES` 和 NetworkManager 的 `Metered`（1 yes / 3 guess-yes）决定能不能用云端；spawn 会重新导入 `__main__`，测试脚本要有 `if __name__ == "__main__"`
 - `clicktodo/`（`__init__.py` + `page.html`）：Click to Do。`spectacle -a -S` 原始分辨率截图 → `ocr.cloud_result(..., word_boxes=True)`（只用云端，失败就报错退出）→ 把截图和 OCR 结果写成一个 HTML 页面 → `firefox --new-window`。页面用 pdf.js 的做法：截图上面叠一层透明文字，**每个字符**是一个绝对定位的 `<span>`，用 `scaleX` 拉伸到正好盖住它的框；每行一个 `<div>`，复制时保留换行。`reading_order()` 先把行分成列再排序，否则跨行选择会把侧边栏一起选进来。测试可以用 `firefox --headless --no-remote --profile <临时目录> --screenshot`，页面里加 `show` class 就能看到文字层
 - `clicktodo/textfit.py`：把百度的文字重新对齐到截图的像素上，每个字符一个框（百度的行框和文字准，词框不准，见下面的坑）。步骤：
   - 墨迹：行框上面去掉 1/8（上一行的下伸部分），下面保留（`_` 在最底下）；阈值按这一行的对比度自适应（灰字和背景只差约 55，黑字差约 250）

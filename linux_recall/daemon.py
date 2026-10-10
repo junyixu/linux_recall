@@ -9,9 +9,8 @@ Measured on this setup: identical 1.0, clock tick 0.988, one new text line
 Every cycle logs one line (journal) and appends one record to
 ``~/.cache/linux_recall/daemon.jsonl`` for later dedup statistics.
 
-OCR runs in the background (``ocr_queue.py``); the loop only tells it
-whether the user looks idle: screen locked, or ``IDLE_STREAK`` similar
-shots in a row while CPU pressure stays under ``IDLE_PRESSURE``.
+OCR runs in the background (``ocr_queue.py``): in the cloud unless the
+connection is metered, otherwise locally while the screen is locked.
 """
 
 import argparse
@@ -24,26 +23,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from jeepney import DBusAddress, new_method_call
-from jeepney.io.blocking import open_dbus_connection
-
 from linux_recall.capture import Excluded, ocr_region_known, save, take
-from linux_recall.ocr_queue import OcrQueue, cpu_pressure
+from linux_recall.ocr import CLOUD_POLICIES
+from linux_recall.ocr_queue import OcrQueue, screen_locked
 from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.similarity import similarity
 
 log = logging.getLogger("linux_recall")
-
-IDLE_STREAK = 3
-IDLE_PRESSURE = 10.0  # % (PSI cpu some avg60)
-
-SCREENSAVER = DBusAddress("/ScreenSaver", bus_name="org.freedesktop.ScreenSaver",
-                          interface="org.freedesktop.ScreenSaver")
-
-
-def screen_locked() -> bool:
-    with open_dbus_connection(bus="SESSION") as conn:
-        return bool(conn.send_and_get_reply(new_method_call(SCREENSAVER, "GetActive"), timeout=2).body[0])
 
 
 def last_saved(data_dir: Path) -> tuple[str | None, str] | None:
@@ -71,6 +57,9 @@ def main() -> None:
     parser.add_argument("--no-ocr", dest="ocr", action="store_false")
     parser.add_argument("--ocr-timeout", type=float, default=180,
                         help="seconds per cloud OCR attempt; OCR runs in the background, so this can be long")
+    parser.add_argument("--cloud-ocr", choices=CLOUD_POLICIES, default="unmetered",
+                        help="unmetered: no cloud OCR on a metered connection (e.g. a phone hotspot); "
+                             "without the cloud, OCR waits for the screen to lock and runs locally")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -90,10 +79,9 @@ def main() -> None:
     last = last_saved(args.data_dir)
     stats_path = CACHE_DIR / "daemon.jsonl"
     counts = {"keep": 0, "skip": 0}
-    similar_streak = 0
     queue = None
     if args.ocr:
-        queue = OcrQueue(args.ocr_timeout)
+        queue = OcrQueue(args.ocr_timeout, args.cloud_ocr)
         queue.start()
     log.info("started: interval=%ss threshold=%s last=%s, cycle log %s",
              args.interval, args.threshold, last and last[0], stats_path)
@@ -103,9 +91,6 @@ def main() -> None:
         started = datetime.now().astimezone()
         try:
             if screen_locked():
-                similar_streak = 0
-                if queue:
-                    queue.idle = True
                 counts["skip"] += 1
                 log.info("SKIP  screen locked  [kept %(keep)d, skipped %(skip)d]", counts)
                 record_cycle(stats_path, started, decision="skip", reason="locked")
@@ -116,10 +101,8 @@ def main() -> None:
                 same_app = bool(last) and last[0] == shot.app
                 if same_app and sim is not None and sim >= args.threshold:
                     decision, reason = "skip", "similar"
-                    similar_streak += 1
                     shot.image.unlink()
                 else:
-                    similar_streak = 0
                     decision = "keep"
                     reason = ("first" if not last else "changed" if same_app
                               else f"app {last[0]} -> {shot.app}")
@@ -127,8 +110,6 @@ def main() -> None:
                 log.info("%-5s %-12s similarity %s (threshold %.2f)  %s  [kept %d, skipped %d]",
                          decision.upper(), shot.app, "  -  " if sim is None else f"{sim:.3f}",
                          args.threshold, reason, counts["keep"], counts["skip"])
-                if queue:
-                    queue.idle = similar_streak >= IDLE_STREAK and cpu_pressure() < IDLE_PRESSURE
                 json_path = None
                 if decision == "keep":
                     try:
@@ -148,7 +129,7 @@ def main() -> None:
         except Exception:
             log.exception("capture cycle failed")
         if queue:
-            queue.wake.set()  # re-check idle / breaker even when nothing new was queued
+            queue.wake.set()  # re-check lock / network / breaker even when nothing new was queued
         stop.wait(max(1.0, args.interval - (time.monotonic() - start)))
     log.info("stopped")
 

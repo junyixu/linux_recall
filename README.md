@@ -1,5 +1,10 @@
 # linux_recall
 
+> **Why build this on Linux?** Because on Linux, when you see a feature you need on another OS, like Windows Recall,
+> you can build it yourself, today. And when you think of something nobody has built yet, like going from a screenshot
+> back to exactly what you were looking at, you can add that today too. On other operating systems you can't,
+> or at least not quickly.
+
 A Windows Recall–style screen memory for **KDE Plasma 6 on Wayland**.
 Every minute (or on a hotkey) it screenshots the active window and records *what you were looking at*:
 the app, the window title, the browser URL, the paper and page open in Zotero, the Anki card under review, the Obsidian note,

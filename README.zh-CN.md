@@ -201,7 +201,8 @@ JSON 的主要字段：
   },
   "ocr": {
     "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
-    "fallback_reason": null,                         // 为什么改用本地 OCR
+    "fallback_reason": null,                         // 为什么改用本地 OCR（含云端失败前用了多久）
+    "elapsed_s": 4.9,                                // 给出结果的引擎用了多久，不含失败的云端
     "region": {"left": 2160, "top": 610, "right": 6098, "bottom": 2746},  // 识别的区域
     "text": "全部文字，一行一条",
     "lines": [{"text": "…", "score": 0.99, "box": [[x, y], [x, y], [x, y], [x, y]]}]

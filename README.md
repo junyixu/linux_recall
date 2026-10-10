@@ -351,7 +351,7 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
 
 ```jsonc
 {
-  "schema_version": 13,
+  "schema_version": 14,
   "captured_at": "2026-09-23T20:51:42.366+02:00",
   "trigger": "timer",                                   // or "hotkey"
   "screenshot": {"file": "….webp", "mode": "window", "width": 1969, "height": 1068,
@@ -380,7 +380,7 @@ More recipes (timelines, per-app filters, papers read, dedup statistics): [READM
               "title": "…", "date": "2026-09-24", "zid": 20260924152701, "tags": ["ml"], "aliases": []},
   "okular":  {"path": "/home/…/paper.pdf", "file": "paper.pdf", "title": "…", "author": "…", "page": 12, "pages": 134,
               "tabs": 1, "match": "exact"},
-  "ocr":     {"engine": "paddleocr-cloud PP-OCRv6", "fallback_reason": null,
+  "ocr":     {"engine": "paddleocr-cloud PP-OCRv6", "fallback_reason": null, "elapsed_s": 4.9,
               "text": "…", "lines": [{"text": "…", "score": 0.99, "box": [[x, y], …]}]}
 }
 ```

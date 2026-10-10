@@ -42,7 +42,7 @@ from linux_recall.paths import CACHE_DIR, DATA_DIR
 from linux_recall.screenshot import MODES, take_screenshot, window_region
 from linux_recall.similarity import dhash
 
-SCHEMA_VERSION = 13  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
+SCHEMA_VERSION = 14  # 2: + "screens", OCR only the active window; 3: + screenshot.window_region/dhash;
                     # 4: default mode "window", image downscaled (screenshot.scale), boxes in saved pixels;
                     # 5: + "zotero" (item/page open in Zotero's reader); 6: + "anki" (card under review)
                     # 7: + "kitty" (focused tab/window, foreground processes, Neovim file)
@@ -52,6 +52,7 @@ SCHEMA_VERSION = 13  # 2: + "screens", OCR only the active window; 3: + screensh
                     # 11: + "obsidian" (active note, visible source lines)
                     # 12: + "inkycap" (last active note, #note() properties)
                     # 13: + "okular" (document and page in the active tab)
+                    # 14: ocr.elapsed_s excludes a failed cloud attempt; its duration is in ocr.fallback_reason
 
 log = logging.getLogger("linux_recall")
 

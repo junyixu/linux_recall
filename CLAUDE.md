@@ -89,9 +89,9 @@ qdbus org.kde.kglobalaccel /component/net_local_linux_recall_capture_desktop \
 
 每次截图对应一个 JSON 文件，这是原始记录；以后的 SQLite FTS5 索引要能完全从这些 JSON 重建。
 
-- 顶层字段：`schema_version`（当前是 13）、`id`、`captured_at`（带时区的 ISO 8601）、`trigger`（`hotkey` / `timer` / 测试时自定义）、`screenshot`、`screens`、`window`、`browser`、`ocr`
+- 顶层字段：`schema_version`（当前是 14）、`id`、`captured_at`（带时区的 ISO 8601）、`trigger`（`hotkey` / `timer` / 测试时自定义）、`screenshot`、`screens`、`window`、`browser`、`ocr`
 - `screenshot`：`file`、`mode`、保存的 `width`/`height`、`scale`（保存的图片相对原始截图的缩放比）、`captured_width`/`captured_height`、`window_region`（只有 `fullscreen` 模式有）、`dhash`
-- `ocr`：`{engine, fallback_reason, elapsed_s, region, text, lines: [{text, score, box: 4 个角点}]}`。`box` 和 `region` 都是**保存下来的那张图片**里的像素坐标。`engine` 是实际用的引擎，`fallback_reason` 是为什么改用本地
+- `ocr`：`{engine, fallback_reason, elapsed_s, region, text, lines: [{text, score, box: 4 个角点}]}`。`box` 和 `region` 都是**保存下来的那张图片**里的像素坐标。`engine` 是实际用的引擎，`fallback_reason` 是为什么改用本地（云端失败时带上它用了多久），`elapsed_s` 只算给出结果的那个引擎（schema 14 起；之前包含失败的云端）
 - 版本变化：2 加了 `screens`，OCR 只识别活动窗口；3 加了 `window_region`、`dhash`；4 默认只截活动窗口，并且缩小保存。旧的截图是整个桌面、没有缩小，搜索和预览脚本要兼容（比如没有 `ocr.region` 时不裁剪）
 - 改字段含义时递增 `capture.py` 里的 `SCHEMA_VERSION`
 - JSON 分两次原子写入（先写 tmp 再 rename）：第一次 `ocr` 为 `null`；OCR 失败只记日志，截图保留，`ocr` 仍为 `null`，以后可以补跑

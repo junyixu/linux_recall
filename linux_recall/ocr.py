@@ -247,9 +247,9 @@ def run_ocr(image_path: Path, region: tuple[int, int, int, int] | None = None,
             except Exception as e:
                 if i == len(engines) - 1:
                     raise
-                fallback_reason = f"{type(e).__name__}: {e}"
-                log.warning("%s OCR failed after %.1fs (%s), falling back to %s", name,
-                            time.perf_counter() - start, fallback_reason, engines[i + 1])
+                fallback_reason = f"{type(e).__name__} after {time.perf_counter() - start:.1f}s: {e}"
+                log.warning("%s OCR failed (%s), falling back to %s", name, fallback_reason, engines[i + 1])
+                start = time.perf_counter()  # elapsed_s times only the engine that answered
     finally:
         if crop:
             upload.unlink(missing_ok=True)

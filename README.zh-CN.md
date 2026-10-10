@@ -19,6 +19,7 @@ source /usr/share/linux_recall/lr.zsh        # 放进 ~/.zshrc，提供 lr-searc
 ```
 
 搜索用到的工具是可选依赖：`pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`。
+本地 OCR 要装 `python-rapidocr`；再装上 `python-openvino` 就改用 OpenVINO 跑，识别结果一样，CPU 时间不到 ONNX Runtime 的一半。
 用 AUR 包时，下文命令里的 `uv run` 去掉即可。
 
 </details>
@@ -46,7 +47,7 @@ source /usr/share/linux_recall/lr.zsh        # 放进 ~/.zshrc，提供 lr-searc
 
 ```sh
 cd ~/WorkSpace/windows_recall_linux
-uv sync
+uv sync                            # 想用 pacman 装的 python-openvino：uv venv --system-site-packages && uv sync
 ./scripts/install-hotkey.sh        # 注册全局快捷键 Meta+Alt+R（截图）和 Meta+Alt+C（Click to Do）
 ```
 
@@ -200,7 +201,7 @@ JSON 的主要字段：
                                                      // only（只有一个标签页，但标题对不上）
   },
   "ocr": {
-    "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2"（本地兜底）
+    "engine": "paddleocr-cloud PP-OCRv6",           // 或 "rapidocr 3.9.2 openvino"（本地；或 onnxruntime）
     "fallback_reason": null,                         // 为什么改用本地 OCR（含云端失败前用了多久）
     "elapsed_s": 4.9,                                // 给出结果的引擎用了多久，不含失败的云端
     "region": {"left": 2160, "top": 610, "right": 6098, "bottom": 2746},  // 识别的区域
@@ -224,7 +225,7 @@ OCR 在后台做，不会拖慢截图：
 - 连着计量网络（NetworkManager 的 `Metered` 属性；安卓手机热点会自己声明）时完全不用云端：daemon 和快捷键的 `--cloud-ocr` 默认都是 `unmetered`，这时快捷键截的图也进同一个队列。`always` 不管是否计量，`never` 只用本地。NetworkManager 没认出来的连接可以手动标记：`nmcli connection modify <连接名> connection.metered yes`
 - 不用云端时，只在**锁屏并且接着电源**时用本地 RapidOCR 识别（云端只是暂时出错时，先等它一小时）。一解锁，0.5 秒内就停下，正在识别的那张留在队列里，下次再做
 
-资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 1.3 GB 内存，放在子进程里跑，跑完（或解锁时被停下）内存就释放。本地 OCR 用 4 个线程：2/4/8 个线程每张分别要 8.6/5.3/4.2 秒、17.6/22.3/29.0 秒 CPU，4 个以上多出来的核心基本只是在多耗 CPU。忙的一天约 600 张，锁屏后不到一小时就能识别完。
+资源占用（实测，3840×2080 的窗口）：截图约 0.6 秒 CPU（大部分是 spectacle），云端 OCR 约 0.1 秒 CPU；本地 OCR 约 1.3 GB 内存，放在子进程里跑，跑完（或解锁时被停下）内存就释放。本地 OCR 装了 OpenVINO 就用它，没装用 ONNX Runtime，模型相同、识别结果一样，但 OpenVINO 省得多：4 个线程每张 3.3 秒、8.6 秒 CPU，ONNX Runtime 要 5.3 秒、22 秒 CPU（OpenVINO 2/4/8 个线程分别是 4.0/3.3/2.5 秒、7.1/8.6/11.3 秒 CPU）。OpenVINO 的 GPU 插件（Xe2 核显）并不更快，默认的 f16 还会让约 5% 的行识别得不一样，所以只用 CPU。忙的一天约 600 张，锁屏后约半小时就能识别完。
 
 ```sh
 systemctl --user enable --now linux-recall   # AUR 包：unit 已经装好

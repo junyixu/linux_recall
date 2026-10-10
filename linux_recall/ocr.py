@@ -7,12 +7,13 @@ whole multi-monitor desktop nearly empty. Raising ``textDetLimitSideLen``
 (tried 3938/4000/6098) makes the job fail with HTTP 500, so we don't. Based
 on ``~/WorkSpace/anki_agent/anki_ocr_paddle.py``.
 
-Local: RapidOCR (PaddleOCR models on ONNX Runtime), used whenever the cloud
-misses its deadline or errors out — its queue can stall for minutes. It runs
-in a child process: ONNX Runtime keeps ~400 MB after the first run, which the
-long-running daemon would otherwise hold for good, and the caller can kill
-it mid-run (``stop``). RapidOCR is optional (the AUR package only suggests
-it); without it, only the cloud is tried.
+Local: RapidOCR (PaddleOCR models on OpenVINO if installed, else ONNX
+Runtime), used whenever the cloud misses its deadline or errors out — its
+queue can stall for minutes. It runs in a child process: the runtime keeps
+~400 MB after the first run, which the long-running daemon would otherwise
+hold for good, and the caller can kill it mid-run (``stop``). RapidOCR is
+optional (the AUR package only suggests it); without it, only the cloud is
+tried.
 
 ``cloud_blocked`` says when the cloud mustn't be used at all: ``--cloud-ocr
 unmetered`` (the default) skips it on a metered connection such as a phone
@@ -45,6 +46,10 @@ MAX_SIDE = 4000  # server-side max_side_limit; larger crops get shrunk first
 QUEUE_FULL = 10010
 CLOUD_TIMEOUT = 60.0
 HAS_LOCAL = find_spec("rapidocr") is not None
+# same text from the same .onnx models at ~40% of ONNX Runtime's CPU time (a 3840x2080 window
+# on 4 threads: 3.3 s and 8.6 s of CPU vs 5.3 s and 22 s); its GPU plugin was no faster, and
+# GPU's default f16 changed ~5% of the lines
+LOCAL_BACKEND = "openvino" if find_spec("openvino") else "onnxruntime"
 CLOUD_POLICIES = ("unmetered", "always", "never")  # when the cloud may be used
 
 NETWORK_MANAGER = DBusAddress("/org/freedesktop/NetworkManager", bus_name="org.freedesktop.NetworkManager",
@@ -189,12 +194,15 @@ def _local_child(sender: Connection, image_path: Path, max_side: int, threads: i
 
 
 def _local_in_process(image_path: Path, max_side: int, threads: int) -> list[Line]:
-    from rapidocr import RapidOCR  # heavy import, only needed on fallback
+    from rapidocr import EngineType, RapidOCR  # heavy import, only needed on fallback
 
+    backend = EngineType(LOCAL_BACKEND)  # OpenVINO's model list names the same .onnx files: no download
     engine = RapidOCR(params={
         # RapidOCR downscales to 2000px by default, blurring small text on HiDPI crops
         "Global.max_side_len": max_side, "Global.log_level": "warning",
-        # -1 = all cores: ~29 s of CPU in ~4 s on a 3840x2080 window
+        "Det.engine_type": backend, "Cls.engine_type": backend, "Rec.engine_type": backend,
+        # -1 = all cores; each backend reads only its own key
+        "EngineConfig.openvino.inference_num_threads": threads,
         "EngineConfig.onnxruntime.intra_op_num_threads": threads,
     })
     result = engine(str(image_path))
@@ -242,7 +250,7 @@ def run_ocr(image_path: Path, region: tuple[int, int, int, int] | None = None,
                     engine = f"paddleocr-cloud {MODEL}"
                 else:
                     raw = _local(upload, max(upload_size), local_threads, stop)
-                    engine = f"rapidocr {version('rapidocr')}"
+                    engine = f"rapidocr {version('rapidocr')} {LOCAL_BACKEND}"
                 break
             except Exception as e:
                 if i == len(engines) - 1:

@@ -13,7 +13,7 @@ HTTP 401/403 won't fix themselves, so they pause the longest and notify once.
 On a metered connection (``--cloud-ocr unmetered``, the default) the cloud
 isn't tried at all, and hotkey captures queue their originals here too.
 
-Without the cloud, local RapidOCR (~22 s of CPU per 3840x2080 window) only
+Without the cloud, local RapidOCR (~9 s of CPU per 3840x2080 window) only
 runs while the screen is locked and the laptop is on mains power, and only if
 RapidOCR is installed; unlocking kills the running OCR within 0.5 s and the
 shot stays queued. A merely failing cloud first gets ``LOCAL_AFTER`` to
@@ -42,8 +42,8 @@ PENDING_DIR = CACHE_DIR / "pending"
 # for the screen to lock; the oldest are dropped (their JSON keeps "ocr": null)
 MAX_PENDING = 1500
 LOCAL_AFTER = 3600  # seconds a failing cloud gets before local OCR may take a shot
-# ONNX Runtime threads; per 3840x2080 window, 2/4/8 threads take 8.6/5.3/4.2 s and
-# 17.6/22.3/29.0 s of CPU: past 4 (the P-cores) extra threads mostly burn CPU
+# per 3840x2080 window, OpenVINO on 2/4/8 threads takes 4.0/3.3/2.5 s and 7.1/8.6/11.3 s of CPU
+# (ONNX Runtime: 8.6/5.3/4.2 s and 17.6/22.3/29.0 s); 4 trades a little CPU for a faster night
 LOCAL_THREADS = 4
 FIRST_PAUSE, LONGEST_PAUSE = 60, 1800
 

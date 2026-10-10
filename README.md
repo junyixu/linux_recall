@@ -54,6 +54,7 @@ source /usr/share/linux_recall/lr.zsh           # in ~/.zshrc, for lr-search / l
 ```
 
 The search tools are optional dependencies: `pacman -S --asdeps jq fzf imagemagick kitty plasma-browser-integration`.
+Local OCR needs `python-rapidocr`; with `python-openvino` installed as well it runs on OpenVINO instead of ONNX Runtime.
 With the package, drop `uv run` from the commands below.
 
 </details>
@@ -83,7 +84,7 @@ With the package, drop `uv run` from the commands below.
 ```sh
 git clone https://github.com/junyixu/linux_recall ~/WorkSpace/windows_recall_linux
 cd ~/WorkSpace/windows_recall_linux
-uv sync
+uv sync                              # or `uv venv --system-site-packages && uv sync` to use pacman's python-openvino
 ./scripts/install-hotkey.sh          # Meta+Alt+R: capture, Meta+Alt+C: Click to Do
 
 # optional: capture every minute; uv.conf points the unit at .venv (edit it if you cloned elsewhere)
@@ -245,10 +246,12 @@ window is gone, `ctrl-o` runs `claude --resume <session id>` in a new tab.
   Uploading just the window gives 100+ lines. A full queue (`code 10010`) is retried with backoff.
   Spectacle's WebP is uploaded as is: re-encoding it as PNG gave identical text at 4× the size, and JPEG
   (a second lossy pass) lost 5–60% of the characters.
-- **Local**: [RapidOCR](https://github.com/RapidAI/RapidOCR) (PaddleOCR models on ONNX Runtime), used when the
-  cloud misses `--ocr-timeout` (default 60 s, covering the whole attempt) or errors. The JSON records which
-  engine ran and why the fallback happened. It runs in a child process, since ONNX Runtime keeps ~400 MB
-  after the first run; a 3840×2080 window costs ~30 s of CPU.
+- **Local**: [RapidOCR](https://github.com/RapidAI/RapidOCR) (PaddleOCR models), used when the cloud misses
+  `--ocr-timeout` (default 60 s, covering the whole attempt) or errors. The JSON records which engine ran and
+  why the fallback happened. It runs on OpenVINO when that is installed, otherwise ONNX Runtime: same models,
+  identical text, but a 3840×2080 window on 4 threads costs 8.6 s of CPU instead of 22 s. OpenVINO's GPU
+  plugin (Xe2 iGPU) was no faster, and its default f16 changed ~5% of the lines, so OCR stays on the CPU.
+  It runs in a child process, since the runtime keeps ~400 MB after the first run.
 
 On a CPU budget, cloud OCR is almost free (~0.1 s of CPU; the 5–60 s is upload and queueing) and the
 screenshot itself is ~0.6 s, mostly Spectacle. So the daemon never blocks on OCR and keeps local OCR out
@@ -266,8 +269,8 @@ of the user's way:
   connection NetworkManager doesn't recognize: `nmcli connection modify <name> connection.metered yes`.
 - Without the cloud, local OCR only runs while the screen is locked and the laptop is plugged in (a merely
   failing cloud first gets an hour to come back). Unlocking kills the running OCR within 0.5 s, and that
-  shot stays queued. It uses 4 threads: per 3840×2080 window, 2/4/8 threads took 8.6/5.3/4.2 s and
-  17.6/22.3/29.0 s of CPU, so a busy day's ~600 shots need under an hour of a locked night.
+  shot stays queued. It uses 4 threads: per 3840×2080 window, OpenVINO on 2/4/8 threads took 4.0/3.3/2.5 s
+  and 7.1/8.6/11.3 s of CPU, so a busy day's ~600 shots need about half an hour of a locked night.
 
 The JSON is written twice, atomically: right after the screenshot (`"ocr": null`) and again after OCR,
 so a failed OCR never loses the capture.

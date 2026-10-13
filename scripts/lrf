@@ -273,6 +273,16 @@ export LR_QUERY=$q
 
 # 每行: json路径 <TAB> OCR行号(-1 表示不是 OCR 行) <TAB> 跳转目标(行号:文件，只有匹配 Neovim buffer 原文的行有)
 #       <TAB> 程序+时间 <TAB> 文字 <TAB> 网站/标题
+if [[ -z $q ]]; then
+    # 无搜索词：列出所有 JSON
+    json_files=( "$captures"/*/*.json )
+else
+    # 用 ripgrep 快速过滤包含搜索词的 JSON
+    mapfile -t json_files < <(rg -l "$q" "$captures" --type json 2>/dev/null)
+fi
+
+[[ ${#json_files[@]} -eq 0 ]] && { echo "没有找到: $q" >&2; exit 1; }
+
 rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
     input_filename as $f
     # 程序名补齐到 13 个字符，后面接截图时间(月-日 时:分)
@@ -323,7 +333,7 @@ rows=$(jq -r --arg q "$q" "$JQ_DEFS"'
                | map(select(. != null) | hl($q)) | join("  ")) as $text
             | [$f, "-1", "", $app, $text, $info]) )
       end
-    | join("\t")' "$captures"/*/*.json)
+    | join("\t")' "${json_files[@]}")
 
 if [[ -z $rows ]]; then
     echo "没有找到: $q" >&2

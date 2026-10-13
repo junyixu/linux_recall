@@ -198,6 +198,40 @@ open_context() {
         "$(jq -r '"\(.window.app_name // "?"): \(.window.caption // "")"' "$json")（截图时没有记录网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / Okular 文档 / kitty 窗口）"
 }
 
+if [[ ${1:-} == --help ]]; then
+    cat <<'EOF'
+lrf [关键词] — 搜索 linux_recall 的截图
+
+快捷键:
+  enter    输出选中截图的 JSON 路径
+  ctrl-f   输出截图时 Neovim 打开的文件路径
+  ctrl-t   输出截图时 InkyCap 打开的笔记路径
+  ctrl-s   在默认应用中打开原截图
+  ctrl-o   打开截图时的内容:
+             • 浏览器: 网址
+             • Zotero: 论文的那一页
+             • Anki: 卡片 (Browse 窗口)
+             • Obsidian: 笔记文件
+             • Okular: PDF 的那一页
+             • Neovim: 文件并跳到那一行(匹配行或原光标)
+             • kitty: 原窗口或运行 claude --resume 恢复会话
+
+预览(右侧):
+  • 时间、程序、窗口标题、网址
+  • 截图 (在 kitty 里显示，匹配的行红框标出)
+  • Neovim 的 buffer 原文、kitty 的命令和输出、Obsidian 笔记原文等
+
+搜索范围:
+  无关键词: 列出所有截图 (按窗口标题)
+  有关键词: 列出匹配的 OCR 行、文件名、命令、笔记原文等
+             Neovim/Obsidian 还搜索对应的源文件内容(显示行号和上下文)
+             kitty shell 搜索命令本身和它的输出
+             Anki 搜索卡片字段
+             Claude Code 搜索会话标题和最后一次提问
+EOF
+    exit 0
+fi
+
 if [[ ${1:-} == --open ]]; then
     open_context "$2" "${3:-}"
     exit 0
@@ -298,7 +332,7 @@ fi
 printf '%s\n' "$rows" |
     fzf --ansi --tac --tiebreak=index \
         --delimiter '\t' --with-nth 4.. \
-        --header 'enter: 输出 JSON 路径 · ctrl-f: 输出 Neovim 文件路径 · ctrl-t: 输出 InkyCap 笔记路径 · ctrl-s: 打开截图 · ctrl-o: 打开网址 / Zotero 论文 / Anki 卡片 / Obsidian 笔记 / Okular 页 / Neovim 文件 / kitty 窗口' \
+        --header 'enter: JSON · ctrl-f: Neovim · ctrl-t: InkyCap · ctrl-s: 截图 · ctrl-o: 打开 · (lrf --help)' \
         --preview "'$self' --preview {1} {2} {3}" \
         --preview-window 'right,55%,wrap' \
         --bind 'enter:become(echo {1})' \

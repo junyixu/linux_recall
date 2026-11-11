@@ -19,7 +19,7 @@ jobs:
       # root by default, so everything that builds runs as `builder`
       - name: Create the build user
         run: |
-          pacman -Syu --noconfirm --needed base-devel git python-build python-installer python-hatchling
+          pacman -Syu --noconfirm --needed base-devel git github-cli python-build python-installer python-hatchling
           id builder >/dev/null 2>&1 || useradd -m builder
           echo 'builder ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/builder
 
@@ -29,11 +29,13 @@ jobs:
           fetch-depth: 0
 
       # actions/checkout runs as root and the build runs as builder; without
-      # this, git calls the checkout unsafe and makepkg's pkgver() fails
+      # this, git calls the checkout unsafe and makepkg's pkgver() fails.
+      # gh runs as root too, hence its own entry for the release step
       - name: Hand the workspace to the build user
         run: |
           chown -R builder: "$GITHUB_WORKSPACE"
           runuser -u builder -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # the real check is not "does it build" but "does the built package work"
       - name: Build from the AUR PKGBUILD
@@ -62,7 +64,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh --version >/dev/null 2>&1 || pacman -S --noconfirm --needed github-cli
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             && gh release upload --clobber "$GITHUB_REF_NAME" dist/*.pkg.tar.zst \
             || gh release create "$GITHUB_REF_NAME" dist/*.pkg.tar.zst --generate-notes

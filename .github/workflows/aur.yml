@@ -15,27 +15,40 @@ jobs:
     runs-on: ubuntu-24.04
     container: archlinux:latest
     steps:
-      - run: |
+      # makepkg refuses to run as root, and the job inside this container is
+      # root by default, so everything that builds runs as `builder`
+      - name: Create the build user
+        run: |
           pacman -Syu --noconfirm --needed base-devel git python-build python-installer python-hatchling
-          # the job runs as root, the checkout is owned by the runner user
-          git config --global --add safe.directory '*'
+          id builder >/dev/null 2>&1 || useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/builder
 
       - uses: actions/checkout@v4
         with:
           # pkgver is derived from the commit count, so the whole history is needed
           fetch-depth: 0
 
-      # the Arch packages above are newer than the AUR deps expect, and the
-      # KDE stack is irrelevant to whether makepkg produces a package; the
-      # real check is whether it installs and runs on the built package
+      # actions/checkout runs as root and the build runs as builder; without
+      # this, git calls the checkout unsafe and makepkg's pkgver() fails
+      - name: Hand the workspace to the build user
+        run: |
+          chown -R builder: "$GITHUB_WORKSPACE"
+          runuser -u builder -- git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # the real check is not "does it build" but "does the built package work"
       - name: Build from the AUR PKGBUILD
         run: |
           git clone --depth 1 https://aur.archlinux.org/linux-recall-git.git /tmp/aur
-          scripts/build-aur.sh /tmp/aur dist
+          chown -R builder: /tmp/aur
+          runuser -u builder -- "$GITHUB_WORKSPACE/scripts/build-aur.sh" /tmp/aur /tmp/out
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp /tmp/out/*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/"
 
+      # --assume-installed: the KDE stack is not available in this image, but
+      # spectacle has no bearing on whether the package installs and runs
       - name: Smoke test
         run: |
-          pacman -U --noconfirm dist/*.pkg.tar.zst
+          pacman -U --noconfirm --assume-installed spectacle dist/*.pkg.tar.zst
           pacman -Ql linux-recall-git | grep -E 'bin/(lrf|linux-recall)|systemd/user|share/linux_recall'
           /usr/bin/python -c "import linux_recall, linux_recall.capture, linux_recall.daemon"
 
@@ -51,5 +64,5 @@ jobs:
         run: |
           gh --version >/dev/null 2>&1 || pacman -S --noconfirm --needed github-cli
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            && gh release upload "$GITHUB_REF_NAME" dist/*.pkg.tar.zst \
+            && gh release upload --clobber "$GITHUB_REF_NAME" dist/*.pkg.tar.zst \
             || gh release create "$GITHUB_REF_NAME" dist/*.pkg.tar.zst --generate-notes

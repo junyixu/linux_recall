@@ -17,6 +17,8 @@ jobs:
     steps:
       - run: |
           pacman -Syu --noconfirm --needed base-devel git python-build python-installer python-hatchling
+          # the job runs as root, the checkout is owned by the runner user
+          git config --global --add safe.directory '*'
 
       - uses: actions/checkout@v4
         with:

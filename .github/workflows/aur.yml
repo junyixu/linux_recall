@@ -1,0 +1,53 @@
+name: aur
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/aur.yml", "scripts/build-aur.sh"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - run: |
+          pacman -Syu --noconfirm --needed base-devel git python-build python-installer python-hatchling
+
+      - uses: actions/checkout@v4
+        with:
+          # pkgver is derived from the commit count, so the whole history is needed
+          fetch-depth: 0
+
+      # the Arch packages above are newer than the AUR deps expect, and the
+      # KDE stack is irrelevant to whether makepkg produces a package; the
+      # real check is whether it installs and runs on the built package
+      - name: Build from the AUR PKGBUILD
+        run: |
+          git clone --depth 1 https://aur.archlinux.org/linux-recall-git.git /tmp/aur
+          scripts/build-aur.sh /tmp/aur dist
+
+      - name: Smoke test
+        run: |
+          pacman -U --noconfirm dist/*.pkg.tar.zst
+          pacman -Ql linux-recall-git | grep -E 'bin/(lrf|linux-recall)|systemd/user|share/linux_recall'
+          /usr/bin/python -c "import linux_recall, linux_recall.capture, linux_recall.daemon"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: dist/*.pkg.tar.zst
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version >/dev/null 2>&1 || pacman -S --noconfirm --needed github-cli
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && gh release upload "$GITHUB_REF_NAME" dist/*.pkg.tar.zst \
+            || gh release create "$GITHUB_REF_NAME" dist/*.pkg.tar.zst --generate-notes

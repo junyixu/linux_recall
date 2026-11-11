@@ -1,0 +1,44 @@
+name: wheel
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      # the AUR -bin package installs this wheel, so it is built in isolation
+      # with hatchling declared rather than from the runner's environment
+      - run: uv build --wheel --out-dir dist
+
+      # the wheel has to work on a plain Arch Python, no venv, no extras
+      - name: Smoke test on Arch
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" archlinux:latest bash -c '
+            set -eu
+            pacman -Syu --noconfirm --needed python python-pip python-jeepney python-pillow python-requests >/dev/null
+            pip install --no-index --no-deps --break-system-packages /dist/*.whl
+            python -c "import linux_recall, linux_recall.capture, linux_recall.daemon"
+            command -v lrf linux-recall-capture linux-recall-daemon'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && gh release upload --clobber "$GITHUB_REF_NAME" dist/*.whl \
+            || gh release create "$GITHUB_REF_NAME" dist/*.whl --generate-notes
